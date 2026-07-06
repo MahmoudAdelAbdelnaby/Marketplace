@@ -1,0 +1,1676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Innovation Opportunity Canvas</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #00737f;
+      --accent: #25e2cc;
+      --deep: #002632;
+      --secondary: #e9f6f5;
+      --danger: #cc3262;
+      --warning: #ff8400;
+      --success: #00897b;
+      
+      --bg-main: #f8fafc;
+      --bg-card: rgba(255, 255, 255, 0.7);
+      --border: rgba(0, 115, 127, 0.15);
+      --text-main: #1e293b;
+      --text-muted: #64748b;
+      
+      --glass-bg: rgba(255, 255, 255, 0.6);
+      --glass-border: rgba(255, 255, 255, 0.8);
+      --glass-shadow: 0 8px 32px 0 rgba(0, 38, 50, 0.05);
+      
+      --font-body: 'Inter', sans-serif;
+      --font-heading: 'Montserrat', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    [data-theme="dark"] {
+      --bg-main: #001219;
+      --bg-card: rgba(0, 38, 50, 0.4);
+      --border: rgba(37, 226, 204, 0.15);
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      
+      --glass-bg: rgba(0, 38, 50, 0.4);
+      --glass-border: rgba(37, 226, 204, 0.1);
+      --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+      --secondary: rgba(37, 226, 204, 0.1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-body);
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      transition: background-color 0.3s, color 0.3s;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(0,115,127,0.1) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(37,226,204,0.1) 0px, transparent 50%);
+    }
+
+    button, select, input[type="text"], input[type="number"], textarea {
+      font-family: inherit;
+    }
+
+    .glass-panel {
+      background: var(--glass-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      border-radius: 16px;
+    }
+
+    /* Top Bar */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 2rem;
+      z-index: 10;
+    }
+    
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: var(--font-heading);
+      font-weight: 800;
+      font-size: 1.25rem;
+      color: var(--primary);
+      cursor: pointer;
+    }
+    
+    [data-theme="dark"] .brand { color: var(--accent); }
+
+    .header-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.875rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+      border: 1px solid transparent;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+    
+    .btn-primary:hover { background: var(--deep); box-shadow: 0 4px 12px rgba(0,115,127,0.3); }
+    
+    .btn-outline {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text-main);
+    }
+    
+    .btn-outline:hover { background: var(--secondary); }
+
+    .btn-icon {
+      padding: 8px;
+      border-radius: 8px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .btn-icon:hover { background: var(--secondary); }
+
+    /* Layouts */
+    #dashboardView, #formView {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      padding: 0 1rem 1rem;
+      gap: 1rem;
+    }
+
+    /* Dashboard */
+    .dashboard-container {
+      flex: 1;
+      padding: 2rem;
+      overflow-y: auto;
+    }
+    
+    .ideas-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    .idea-card {
+      padding: 1.5rem;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .idea-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--glass-shadow);
+      border-color: var(--primary);
+    }
+    
+    /* Sidebar */
+    .sidebar {
+      width: 280px;
+      padding: 1.5rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      overflow-y: auto;
+    }
+
+    .nav-phase { margin-bottom: 1.5rem; }
+    .nav-phase-title {
+      font-family: var(--font-heading);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+      padding-left: 0.5rem;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-radius: 8px;
+      color: var(--text-main);
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: all 0.2s;
+      cursor: pointer;
+      margin-bottom: 4px;
+    }
+
+    .nav-item:hover, .nav-item.active {
+      background: var(--secondary);
+      color: var(--primary);
+    }
+    
+    [data-theme="dark"] .nav-item:hover, [data-theme="dark"] .nav-item.active {
+      color: var(--accent);
+    }
+
+    .check-icon {
+      color: var(--success);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .nav-item.filled .check-icon { opacity: 1; }
+
+    /* Score Panel */
+    .score-panel {
+      margin-top: auto;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .progress-bar {
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 4px;
+      margin-bottom: 1rem;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--primary);
+      transition: width 0.3s;
+    }
+    [data-theme="dark"] .progress-fill { background: var(--accent); }
+
+    .score-item {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      margin-bottom: 6px;
+    }
+
+    /* Main Content */
+    .main-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 2rem;
+      scroll-behavior: smooth;
+    }
+
+    .section-container {
+      max-width: 800px;
+      margin: 0 auto 3rem;
+      opacity: 0.9;
+      transform: translateY(10px);
+      transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .section-container.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .section-header {
+      margin-bottom: 1.5rem;
+    }
+    .section-title {
+      font-family: var(--font-heading);
+      font-size: 1.5rem;
+      color: var(--primary);
+      margin-bottom: 0.5rem;
+    }
+    [data-theme="dark"] .section-title { color: var(--accent); }
+    .section-desc {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    /* Form Elements */
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+    label {
+      display: flex;
+      align-items: center;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+    }
+    
+        /* Custom Intensive Tooltips */
+    .tooltip-wrapper {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .tooltip-icon {
+      margin-left: 6px;
+      color: var(--primary);
+      background: rgba(0, 115, 127, 0.1);
+      border-radius: 50%;
+      cursor: help;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      transition: all 0.2s;
+    }
+    .tooltip-icon:hover {
+      background: var(--primary);
+      color: white;
+      transform: scale(1.1);
+    }
+    .tooltip-popup {
+      position: absolute;
+      bottom: calc(100% + 10px);
+      left: 0;
+      transform: translateY(4px);
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: var(--radius-md);
+      padding: 0.875rem 1rem;
+      width: 320px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      z-index: 99999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s, transform 0.2s;
+      font-weight: normal;
+      color: #0f172a;
+    }
+    [data-theme="dark"] .tooltip-popup {
+      background: #0b1a20;
+      border-color: rgba(37, 226, 204, 0.35);
+      color: #f1f5f9;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+    .tooltip-wrapper:hover .tooltip-popup {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+    .tooltip-popup.align-right {
+      left: auto;
+      right: -10px;
+    }
+    .tooltip-popup::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 16px;
+      border: 6px solid transparent;
+      border-top-color: #cbd5e1;
+    }
+    [data-theme="dark"] .tooltip-popup::after {
+      border-top-color: rgba(37, 226, 204, 0.35);
+    }
+    .tooltip-popup::before {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 17px;
+      border: 5px solid transparent;
+      border-top-color: #ffffff;
+      z-index: 1;
+    }
+    [data-theme="dark"] .tooltip-popup::before {
+      border-top-color: #0b1a20;
+    }
+    .tooltip-popup.align-right::after {
+      left: auto;
+      right: 16px;
+    }
+    .tooltip-popup.align-right::before {
+      left: auto;
+      right: 17px;
+    }
+    
+    /* Align Bottom Tooltip Carets */
+    .tooltip-popup.align-bottom {
+      bottom: auto;
+      top: calc(100% + 10px);
+      transform: translateY(-4px);
+    }
+    .tooltip-wrapper:hover .tooltip-popup.align-bottom {
+      transform: translateY(0);
+    }
+    .tooltip-popup.align-bottom::after {
+      top: auto;
+      bottom: 100%;
+      border-top-color: transparent;
+      border-bottom: 6px solid #cbd5e1;
+    }
+    [data-theme="dark"] .tooltip-popup.align-bottom::after {
+      border-bottom-color: rgba(37, 226, 204, 0.35);
+    }
+    .tooltip-popup.align-bottom::before {
+      top: auto;
+      bottom: 100%;
+      border-top-color: transparent;
+      border-bottom: 5px solid #ffffff;
+    }
+    [data-theme="dark"] .tooltip-popup.align-bottom::before {
+      border-bottom-color: #0b1a20;
+    }
+
+    .tooltip-desc {
+      font-size: 0.8125rem;
+      color: #334155;
+      line-height: 1.5;
+      margin-bottom: 0.5rem;
+    }
+    [data-theme="dark"] .tooltip-desc {
+      color: #cbd5e1;
+    }
+    .tooltip-example {
+      font-size: 0.75rem;
+      color: #475569;
+      font-style: italic;
+      padding: 0.375rem 0.5rem;
+      background: #f1f5f9;
+      border-radius: var(--radius-sm);
+      border-left: 2px solid var(--primary);
+      line-height: 1.45;
+      margin-bottom: 0.375rem;
+    }
+    [data-theme="dark"] .tooltip-example {
+      color: #94a3b8;
+      background: rgba(37, 226, 204, 0.05);
+      border-left-color: var(--accent);
+    }
+    .tooltip-question {
+      font-size: 0.75rem;
+      color: #334155;
+      margin-top: 0.375rem;
+    }
+    [data-theme="dark"] .tooltip-question {
+      color: #cbd5e1;
+    }
+    .tooltip-question::before {
+      content: '💡 ';
+    }
+
+    input[type="text"], input[type="number"], select, textarea {
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-main);
+      font-size: 0.95rem;
+      transition: all 0.2s;
+    }
+    
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(0, 115, 127, 0.1);
+    }
+    
+    textarea {
+      resize: none; /* Auto-expand */
+      min-height: 100px;
+      overflow: hidden;
+    }
+
+    /* Sliders */
+    .slider-container {
+      margin-bottom: 1.5rem;
+      background: var(--bg-card);
+      padding: 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+    .slider-label { font-weight: 600; font-size: 0.9rem; }
+    .slider-value { font-weight: 700; color: var(--primary); font-size: 0.85rem; }
+    [data-theme="dark"] .slider-value { color: var(--accent); }
+    
+    input[type="range"] {
+      width: 100%;
+      margin: 8px 0 0;
+      accent-color: var(--primary);
+    }
+    [data-theme="dark"] input[type="range"] { accent-color: var(--accent); }
+    
+    .slider-scale {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      padding: 0 4px;
+    }
+
+    /* Checkboxes */
+    .checkbox-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+    }
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+      cursor: pointer;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      transition: all 0.2s;
+    }
+    .checkbox-label:hover { background: var(--secondary); }
+    .checkbox-label input { cursor: pointer; }
+
+    /* Highlight block */
+    .highlight-block {
+      background: var(--secondary);
+      padding: 1.5rem;
+      border-radius: 12px;
+      border-left: 4px solid var(--primary);
+    }
+    [data-theme="dark"] .highlight-block { border-left-color: var(--accent); }
+
+    /* AI Chat Panel */
+    .ai-panel {
+      width: 350px;
+      display: flex;
+      flex-direction: column;
+      transition: width 0.3s;
+    }
+    .ai-panel.collapsed {
+      width: 50px;
+    }
+    
+    .ai-header {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 700;
+    }
+    
+    .ai-chat-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    
+    .chat-bubble {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+    .chat-user {
+      align-self: flex-end;
+      background: var(--primary);
+      color: white;
+      border-bottom-right-radius: 2px;
+    }
+    .chat-ai {
+      align-self: flex-start;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 2px;
+    }
+    
+    .ai-input-area {
+      padding: 1rem;
+      border-top: 1px solid var(--border);
+    }
+    
+    .ai-actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .ai-action-btn {
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      border-radius: 999px;
+      background: var(--secondary);
+      border: 1px solid var(--border);
+      color: var(--primary);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    [data-theme="dark"] .ai-action-btn { color: var(--accent); }
+
+    /* Modals */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 38, 50, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 100;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+    .modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .modal-content {
+      background: var(--bg-main);
+      padding: 2rem;
+      border-radius: 16px;
+      width: 90%;
+      max-width: 500px;
+      box-shadow: var(--glass-shadow);
+      border: 1px solid var(--border);
+    }
+
+    .markdown-body {
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+    .markdown-body h3 { margin: 1em 0 0.5em; color: var(--primary); }
+    [data-theme="dark"] .markdown-body h3 { color: var(--accent); }
+    .markdown-body ul { padding-left: 1.5em; margin-bottom: 1em; }
+    .markdown-body strong { font-weight: 700; }
+
+  </style>
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <header>
+    <div class="brand" onclick="showDashboard()">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      IdeaPipeline
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-icon" id="themeToggle" title="Toggle Theme">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <button class="btn btn-outline" onclick="showDashboard()">My Workspace</button>
+      <div id="formActions" style="display:none; gap:12px;">
+        <button class="btn btn-primary" onclick="openModal('saveModal')">Save Idea</button>
+      </div>
+      <button class="btn btn-icon" onclick="openModal('settingsModal')" title="Settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- DASHBOARD VIEW -->
+  <div id="dashboardView" class="glass-panel" style="margin: 0 1rem 1rem;">
+    <div class="dashboard-container">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h1 style="font-family:var(--font-heading); color:var(--primary);">My Workspace</h1>
+        <button class="btn btn-primary" onclick="newCanvas()">+ New Canvas</button>
+      </div>
+      <p style="color:var(--text-muted); margin-top:8px;">Manage your innovation opportunities and drafts.</p>
+      
+      <div class="ideas-grid" id="ideasList">
+        <!-- JS populated -->
+      </div>
+    </div>
+  </div>
+
+  <!-- FORM VIEW -->
+  <div id="formView" style="display:none;">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar glass-panel" id="sidebarNav">
+      <!-- Populated by JS -->
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content glass-panel" id="mainContent" onscroll="handleScroll()">
+      
+      <!-- Phase 1 -->
+      <div class="section-container" id="sec-problem">
+        <div class="section-header">
+          <h2 class="section-title">1. Problem We Are Solving</h2>
+          <p class="section-desc">Define the core issue and its implications.</p>
+        </div>
+        <div class="form-group">
+          <label>Problem Statement *</label>
+          <textarea id="f_problemStatement" class="canvas-field auto-expand" placeholder="What is the core problem?"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Current Process</label>
+          <textarea id="f_currentProcess" class="canvas-field auto-expand" placeholder="How is it done today?"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Pain Points</label>
+          <textarea id="f_painPoints" class="canvas-field auto-expand" placeholder="What are the specific pain points?"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Frequency</label>
+          <select id="f_frequency" class="canvas-field">
+            <option value="">Select...</option>
+            <option value="Hourly">Hourly</option>
+            <option value="Daily">Daily</option>
+            <option value="Weekly">Weekly</option>
+            <option value="Monthly">Monthly</option>
+            <option value="Rarely">Rarely</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Implications of Inaction</label>
+          <textarea id="f_implications" class="canvas-field auto-expand" placeholder="What happens if we do nothing?"></textarea>
+        </div>
+      </div>
+
+      <div class="section-container" id="sec-users">
+        <div class="section-header">
+          <h2 class="section-title">2. Target Users</h2>
+        </div>
+        <div class="form-group">
+          <label>Primary Users (comma separated) *</label>
+          <input type="text" id="f_primaryUsers" class="canvas-field" placeholder="e.g. Operations, Agents">
+        </div>
+        <div class="form-group">
+          <label>Decision Makers (comma separated) *</label>
+          <input type="text" id="f_decisionMakers" class="canvas-field" placeholder="e.g. VP Operations">
+        </div>
+      </div>
+
+      <div class="section-container" id="sec-vp">
+        <div class="section-header">
+          <h2 class="section-title">3. Value Proposition</h2>
+        </div>
+        <div class="highlight-block">
+          <div class="form-group">
+            <label>This solution helps:</label>
+            <input type="text" id="f_vpWho" class="canvas-field" placeholder="who?">
+          </div>
+          <div class="form-group">
+            <label>Achieve:</label>
+            <input type="text" id="f_vpWhat" class="canvas-field" placeholder="what outcome?">
+          </div>
+          <div class="form-group">
+            <label>By doing:</label>
+            <textarea id="f_vpHow" class="canvas-field auto-expand" placeholder="what method?"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-container" id="sec-type">
+        <div class="section-header">
+          <h2 class="section-title">4. Solution Type</h2>
+        </div>
+        <div class="checkbox-grid" id="cb_solutionType">
+          <!-- JS populated -->
+        </div>
+        <div class="form-group" id="otherSolutionBox" style="display:none; margin-top:12px;">
+          <label>Please specify 'Other'</label>
+          <input type="text" id="f_solutionOther" class="canvas-field">
+        </div>
+      </div>
+
+      <!-- Phase 2 -->
+      <div class="section-container" id="sec-strategic">
+        <div class="section-header">
+          <h2 class="section-title">5. Strategic Alignment</h2>
+        </div>
+        <div id="sliders_strategic"></div>
+      </div>
+
+      <div class="section-container" id="sec-scale">
+        <div class="section-header">
+          <h2 class="section-title">6. Scalability Assessment</h2>
+        </div>
+        <div class="form-group">
+          <label>Industries</label>
+          <div class="checkbox-grid" id="cb_industries"></div>
+        </div>
+        <div class="form-group">
+          <label>Functions</label>
+          <div class="checkbox-grid" id="cb_functions"></div>
+        </div>
+        <div class="form-group">
+          <label>Regions</label>
+          <div class="checkbox-grid" id="cb_regions"></div>
+        </div>
+      </div>
+
+      <div class="section-container" id="sec-diff">
+        <div class="section-header">
+          <h2 class="section-title">7. Differentiation</h2>
+        </div>
+        <div class="form-group">
+          <label>Current Alternatives</label>
+          <textarea id="f_diffAlts" class="canvas-field auto-expand"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Existing Competitors</label>
+          <textarea id="f_diffComp" class="canvas-field auto-expand"></textarea>
+        </div>
+        <div class="form-group">
+          <label>What Makes it Unique</label>
+          <textarea id="f_diffUnique" class="canvas-field auto-expand"></textarea>
+        </div>
+        <div class="form-group" style="border-top: 1px solid var(--border); padding-top: 1rem;">
+          <button class="btn btn-primary" onclick="generateAI('diff')">✨ Generate Differentiation Comparison</button>
+          <div id="out_diff" class="markdown-body" style="margin-top:1rem;"></div>
+        </div>
+      </div>
+
+      <!-- Phase 3 -->
+      <div class="section-container" id="sec-impact">
+        <div class="section-header">
+          <h2 class="section-title">8. Business Impact</h2>
+        </div>
+        <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+          <div class="form-group" style="flex:1; min-width:150px;">
+            <label>Estimated Users</label>
+            <input type="number" id="f_estUsers" class="canvas-field">
+          </div>
+          <div class="form-group" style="flex:1; min-width:150px;">
+            <label>Hours Saved/User/Week</label>
+            <input type="number" id="f_hrsSaved" class="canvas-field">
+          </div>
+          <div class="form-group" style="flex:1; min-width:150px;">
+            <label>Projected ROI ($/yr)</label>
+            <input type="text" id="f_roi" class="canvas-field">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Cost Savings</label>
+          <textarea id="f_costSavings" class="canvas-field auto-expand"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Revenue Potential</label>
+          <textarea id="f_revenue" class="canvas-field auto-expand"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Time to Deploy (Days)</label>
+          <input type="number" id="f_deployDays" class="canvas-field" style="max-width: 200px;">
+        </div>
+      </div>
+
+      <div class="section-container" id="sec-feasibility">
+        <div class="section-header">
+          <h2 class="section-title">9. Feasibility Assessment</h2>
+        </div>
+        <div id="sliders_feasibility"></div>
+        <div class="form-group">
+          <label>Anticipated Roadblockers/Technology Dependencies</label>
+          <textarea id="f_roadblockers" class="canvas-field auto-expand"></textarea>
+        </div>
+      </div>
+
+      <div class="section-container" id="sec-adoption">
+        <div class="section-header">
+          <h2 class="section-title">10. Adoption Potential</h2>
+        </div>
+        <div id="sliders_adoption"></div>
+      </div>
+
+      <div class="section-container" id="sec-build">
+        <div class="section-header">
+          <h2 class="section-title">11. Build vs Partner</h2>
+        </div>
+        <div class="form-group">
+          <label>Approach</label>
+          <select id="f_buildApproach" class="canvas-field">
+            <option value="">Select...</option>
+            <option value="Build">Build</option>
+            <option value="Buy">Buy</option>
+            <option value="Partner">Partner</option>
+            <option value="Extend DIS">Extend Existing DIS Solution</option>
+            <option value="Extend CNX">Extend Existing CNX Solution</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Justification</label>
+          <textarea id="f_buildJust" class="canvas-field auto-expand"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Other Considerations</label>
+          <textarea id="f_buildOther" class="canvas-field auto-expand"></textarea>
+        </div>
+      </div>
+
+      <!-- Phase 4 -->
+      <div class="section-container" id="sec-risks">
+        <div class="section-header">
+          <h2 class="section-title">12. Risks & Dependencies</h2>
+        </div>
+        <div class="form-group">
+          <label>Technical Risks (comma separated)</label>
+          <textarea id="f_techRisks" class="canvas-field auto-expand"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Operational Risks (comma separated)</label>
+          <textarea id="f_opRisks" class="canvas-field auto-expand"></textarea>
+        </div>
+      </div>
+
+      <div class="section-container" id="sec-metrics">
+        <div class="section-header">
+          <h2 class="section-title">13. Success Metrics</h2>
+        </div>
+        <div class="form-group">
+          <label>KPIs</label>
+          <textarea id="f_kpis" class="canvas-field auto-expand"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Targets</label>
+          <textarea id="f_targets" class="canvas-field auto-expand"></textarea>
+        </div>
+      </div>
+
+      <!-- Phase 5 -->
+      <div class="section-container" id="sec-pitch">
+        <div class="section-header">
+          <h2 class="section-title">14. AI Pitch Evaluation</h2>
+        </div>
+        <div class="form-group">
+          <button class="btn btn-primary" onclick="generateAI('pitch')">✨ Generate Proposed Pitch</button>
+          <div id="out_pitch" class="markdown-body" style="margin-top:1rem;"></div>
+        </div>
+        <div class="form-group" style="border-top: 1px solid var(--border); padding-top: 1rem;">
+          <button class="btn btn-primary" onclick="generateAI('eval')">✨ Generate Strategic Evaluation</button>
+          <div id="out_eval" class="markdown-body" style="margin-top:1rem;"></div>
+        </div>
+      </div>
+      
+      <div style="height: 200px;"></div>
+    </main>
+
+    <!-- AI Chat Panel -->
+    <aside class="ai-panel glass-panel" id="aiPanel">
+      <div class="ai-header">
+        <span id="aiPanelTitle">AI Scoping Assistant</span>
+        <button class="btn-icon" onclick="toggleAI()" style="border:none; padding:4px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
+      </div>
+      <div class="ai-chat-area" id="chatArea">
+        <div class="chat-bubble chat-ai">Hi! I'm your Scoping Assistant. I can help autofill this canvas or critique your current draft.</div>
+      </div>
+      <div class="ai-input-area" id="aiInputArea">
+        <div class="ai-actions">
+          <button class="ai-action-btn" onclick="aiAction('Critique')">Critique Audit</button>
+          <button class="ai-action-btn" onclick="aiAction('Autofill')">Autofill Canvas</button>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="chatInput" placeholder="Ask AI..." style="flex:1;" onkeypress="if(event.key==='Enter') sendChat()">
+          <button class="btn btn-primary" onclick="sendChat()" style="padding: 8px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Modals -->
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal-content">
+      <h3 style="margin-bottom:1rem; color:var(--primary)">Settings</h3>
+      <div class="form-group">
+        <label>Gemini API Key</label>
+        <input type="text" id="apiKey" placeholder="AIzaSy...">
+        <p style="font-size: 0.8rem; color:var(--text-muted); margin-top:4px;">Required for AI features to work.</p>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button class="btn btn-outline" onclick="closeModal('settingsModal')">Close</button>
+        <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="saveModal">
+    <div class="modal-content">
+      <h3 style="margin-bottom:1rem; color:var(--primary)">Save Draft</h3>
+      <div class="form-group">
+        <label>Draft Name</label>
+        <input type="text" id="draftName" placeholder="e.g. Project Alpha">
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button class="btn btn-outline" onclick="closeModal('saveModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveDraft()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- Data & Config ---
+    let currentLoadedIdea = null; // track currently opened idea
+
+    const navStructure = [
+      { phase: '1. Concept & Problem', sections: [
+        { id: 'sec-problem', name: 'Problem We Are Solving' },
+        { id: 'sec-users', name: 'Target Users' },
+        { id: 'sec-vp', name: 'Value Proposition' },
+        { id: 'sec-type', name: 'Solution Type' }
+      ]},
+      { phase: '2. Solution Strategy', sections: [
+        { id: 'sec-strategic', name: 'Strategic Alignment' },
+        { id: 'sec-scale', name: 'Scalability Assessment' },
+        { id: 'sec-diff', name: 'Differentiation' }
+      ]},
+      { phase: '3. Execution & Impact', sections: [
+        { id: 'sec-impact', name: 'Business Impact' },
+        { id: 'sec-feasibility', name: 'Feasibility Assessment' },
+        { id: 'sec-adoption', name: 'Adoption Potential' },
+        { id: 'sec-build', name: 'Build vs Partner' }
+      ]},
+      { phase: '4. Risks & Success', sections: [
+        { id: 'sec-risks', name: 'Risks & Dependencies' },
+        { id: 'sec-metrics', name: 'Success Metrics' }
+      ]},
+      { phase: '5. AI Pitch', sections: [
+        { id: 'sec-pitch', name: 'AI Pitch Evaluation' }
+      ]}
+    ];
+
+    const TIPS = {
+      'Problem Statement': { description: 'Describe the core problem your idea addresses. Be specific about who is affected and what the impact is.', example: 'Contact center agents spend 40% of their time manually searching across 5+ disconnected knowledge bases to find answers during live calls.', question: 'What happens today that frustrates users or wastes resources?' },
+      'Current Process': { description: 'Explain how things are currently done without your solution. Include manual steps, tools used, and time spent.', example: 'Agents alt-tab between CRM, wiki, and email to find policies, then manually type summaries into the ticketing system.', question: 'If someone shadowed the process today, what would they see?' },
+      'Pain Points': { description: 'List the specific frustrations, inefficiencies, or failures caused by the current process.', example: 'High average handle time, inconsistent answers across agents, new hire ramp-up takes 12 weeks.', question: 'What do stakeholders complain about most?' },
+      'Frequency': { description: 'How often does this problem occur? More frequent problems typically warrant higher investment priority.', example: 'Daily — every agent encounters this on nearly every call.', question: 'Is this a daily headache or an occasional inconvenience?' },
+      'Implications of Inaction': { description: 'What happens if we do nothing? Describe the business cost of maintaining the status quo.', example: 'Continued attrition at 45% annually, $2.1M in lost productivity, and declining CSAT below industry benchmark.', question: 'What is the cost of doing nothing for the next 12 months?' },
+      'Primary Users (comma separated)': { description: 'The people who will directly use the solution on a regular basis.', example: 'Frontline contact center agents, team leaders, quality analysts', question: 'Who touches this process every day?' },
+      'Decision Makers (comma separated)': { description: 'The stakeholders who approve budget, resources, or adoption of new solutions.', example: 'VP of Operations, CTO, Head of Digital Transformation', question: 'Who has the authority to greenlight this initiative?' },
+      'This solution helps:': { description: 'Define the specific audience segment this solution serves.', example: 'Enterprise contact centers with 500+ agents', question: 'Who exactly will benefit from this?' },
+      'Achieve:': { description: 'The measurable outcome or transformation the solution delivers.', example: '30% reduction in average handle time and 95% first-call resolution', question: 'What tangible result will users achieve?' },
+      'By doing:': { description: 'The approach or mechanism through which your solution delivers its value.', example: 'AI-powered real-time knowledge retrieval that surfaces the right answer during live calls', question: 'How does your solution make the outcome possible?' },
+      'Industries': { description: 'Which industries could benefit from this solution? More industries = higher scalability score.', example: 'Financial Services, Insurance, Telecommunications — any industry with high-volume interactions.', question: 'Beyond the initial use case, which sectors have the same pain point?' },
+      'Functions': { description: 'Which business functions could adopt this solution?', example: 'Operations, Sales, HR — any function with knowledge-intensive processes.', question: 'Which departments face similar challenges?' },
+      'Regions': { description: 'What geographic reach does this solution support?', example: 'Regional initially (North America), with potential for Global rollout.', question: 'Are there language, compliance, or infrastructure barriers to scaling geographically?' },
+      'Current Alternatives': { description: 'What are people using today to address this problem (including manual workarounds)?', example: 'Spreadsheet-based trackers, shared wikis, tribal knowledge, and ad-hoc Slack questions.', question: 'What would users fall back on if your solution did not exist?' },
+      'Existing Competitors': { description: 'Name direct competitors or similar products in the market.', example: 'Guru, Shelf.io, Coveo — knowledge management platforms with some AI capabilities.', question: 'Who else is trying to solve this, and how well are they doing?' },
+      'What Makes it Unique': { description: 'Your unique differentiator — the reason customers would choose you over alternatives.', example: 'Real-time contextual suggestions during live calls, not just search — plus integration with our proprietary CX data lake.', question: 'What can you do that no one else can (or does) today?' },
+      'Estimated Users': { description: 'The total number of people who would use this solution regularly.', example: '2,500 agents across 4 delivery centers', question: 'How many people interact with this process daily?' },
+      'Hours Saved/User/Week': { description: 'How many hours per week each user currently spends on the process this solution improves.', example: '8 hours/week spent on manual knowledge search and documentation', question: 'If you timed users today, how much effort goes into this task?' },
+      'Projected ROI ($/yr)': { description: 'Specific, measurable targets with timelines for the metrics defined above.', example: 'AHT reduced by 25% within Q2, FCR above 90% by Q3, 80% agent adoption in 60 days', question: 'What numbers/targets would make leadership call this a success?' },
+      'Cost Savings': { description: 'Detail the areas where costs would be reduced and provide rough estimates.', example: 'Eliminate 3 FTEs in manual reporting ($180K), reduce training time by 50% ($95K/year)', question: 'What spend lines on the P&L would shrink?' },
+      'Revenue Potential': { description: 'Describe how this solution could generate new revenue or grow existing streams.', example: 'License to 3 external clients at $200K/year each; enable cross-sell recommendations worth $500K/year', question: 'Could this be sold, licensed, or used to win more business?' },
+      'Anticipated Roadblockers/Technology Dependencies': { description: 'What obstacles or blockers could delay or derail this initiative?', example: 'Legacy system migration timeline, data privacy legal review, competing priorities from leadership.', question: 'What kept similar initiatives from succeeding in the past?' },
+      'Approach': { description: 'Choose whether to build from scratch, or extend an existing solution.', example: 'Build: No existing solution fits; Extend DIS Solution: Leverage existing platform capabilities.', question: 'What gives us the best balance of speed, cost, and control?' },
+      'Justification': { description: 'Explain the reasoning behind your build/extend decision.', example: 'Building in-house gives us full IP ownership and avoids per-seat licensing costs that would make the unit economics unfavorable at scale.', question: 'What is the strongest argument for this approach over the alternatives?' },
+      'Other Considerations': { description: 'Other technical, legal, or strategic factors influencing the decision.', example: 'Need to ensure compatibility with existing SSO, consider API rate limits, evaluate long-term maintenance costs.', question: 'What else should decision-makers know before committing?' },
+      'Technical Risks (comma separated)': { description: 'Technology risks that could impact delivery — scalability, integration failures, tech debt.', example: 'API dependency on third-party vendor, model accuracy below threshold, latency at scale', question: 'What could go wrong technically?' },
+      'Operational Risks (comma separated)': { description: 'Risks related to processes, people, or day-to-day operations.', example: 'Key developer leaving mid-project, insufficient QA resources, scope creep from stakeholders', question: 'What operational challenges could derail execution?' },
+      'KPIs': { description: 'Key Performance Indicators that will measure the success of this initiative.', example: 'Average Handle Time reduction, First Call Resolution rate, Agent NPS, Time-to-Proficiency', question: 'How will we know this is working 6 months after launch?' },
+      'Targets': { description: 'Specific, measurable targets with timelines for the metrics defined above.', example: 'AHT reduced by 25% within Q2, FCR above 90% by Q3, 80% agent adoption in 60 days', question: 'What numbers/targets would make leadership call this a success?' },
+      'Revenue Growth': { description: 'Does this solution directly or indirectly contribute to increasing revenue?', example: 'Enables upsell recommendations during service calls, driving 5% revenue lift.', question: 'Could this open new revenue streams or grow existing ones?' },
+      'Cost Reduction': { description: 'Does this solution reduce operational costs through automation, efficiency, or resource optimization?', example: 'Reduces manual data entry by 80%, saving 2 FTEs annually.', question: 'Where are the current cost sinks this could eliminate?' },
+      'Productivity Improvement': { description: 'Does this solution help teams accomplish more in less time?', example: 'Agents handle 25% more interactions per shift with AI-assisted responses.', question: 'How much faster or more efficiently could people work?' },
+      'Client Experience': { description: 'Does this solution improve client satisfaction, loyalty, or engagement?', example: 'CSAT improves from 72% to 88% through faster, more accurate resolutions.', question: 'Will clients notice a tangible improvement in their experience?' },
+      'Employee Experience': { description: 'Does this solution reduce employee friction, burnout, or frustration?', example: 'Agents report 40% less frustration with knowledge search after implementation.', question: 'Would employees thank you for building this?' },
+      'Market Expansion': { description: 'Does this solution enable entry into new markets, segments, or geographies?', example: 'Multi-language support unlocks LATAM and APAC markets without additional staffing.', question: 'Could this help us reach customers or markets we cannot serve today?' },
+      'Competitive Advantage': { description: 'Does this solution create a differentiator that competitors cannot easily replicate?', example: 'Proprietary AI model trained on 10 years of interaction data gives us a unique edge.', question: 'Would this make us harder to compete against?' },
+      'Innovation Leadership': { description: 'Does this solution position the organization as a thought leader or innovator in the industry?', example: 'First-to-market real-time AI coaching in BPO — drives press coverage and analyst recognition.', question: 'Would this make headlines or turn heads at industry conferences?' },
+      'Technical Feasibility': { description: 'How technically feasible is this solution given current infrastructure and capabilities?', example: 'High: We have the cloud infra and API layers; Low: Requires a technology we have no experience with.', question: 'Do we have the tech stack and expertise to build this?' },
+      'Data Availability': { description: 'Is the data needed for this solution accessible, clean, and sufficient?', example: 'High: 3 years of interaction transcripts in our data lake; Low: Data is siloed across legacy systems.', question: 'Can we access the data we need, and is it usable?' },
+      'Resource Availability': { description: 'Do we have the people, skills, and bandwidth to execute this?', example: 'Medium: Core team available but need 2 additional ML engineers for 6 months.', question: 'Who would build this, and are they available?' },
+      'Security Requirements': { description: 'What security requirements or concerns does this solution raise?', example: 'High: Handles PII data, needs SOC 2 compliance and encryption at rest.', question: 'Does this touch sensitive data or require special security measures?' },
+      'Compliance Complexity': { description: 'Are there regulatory or compliance requirements that add complexity?', example: 'Must comply with GDPR for EU data, HIPAA for healthcare clients.', question: 'What regulations or policies could slow this down?' },
+      'Implementation Complexity': { description: 'How complex is the implementation — integrations, migration, change management?', example: 'Medium: Requires API integration with 3 systems and a 4-week pilot phase.', question: 'How many moving parts are involved in getting this live?' },
+      'Ease of Use': { description: 'How intuitive and easy to use is the solution for the target users?', example: 'High: Simple browser extension; Low: Complex dashboard requiring 2 days of training.', question: 'Could a new user figure this out in under 5 minutes?' },
+      'Training Requirements': { description: 'How much training and onboarding effort is required for users to adopt this?', example: 'Low: Self-serve video tutorials; High: Mandatory 3-day instructor-led training.', question: 'What would the onboarding program look like?' },
+      'Executive Sponsorship': { description: 'How strong is executive buy-in and sponsorship for this initiative?', example: 'High: COO has championed this in 2 board meetings; Low: No senior sponsor identified yet.', question: 'Is there a senior leader who will champion this publicly?' },
+      'User Demand': { description: 'How much demand or pull exists from end-users for this solution?', example: 'High: Top request in last 3 employee surveys; Low: Users are unaware of the problem.', question: 'Are users actively asking for a solution, or do we need to create awareness?' }
+    };
+
+    const solutionTypes = ['Internal Tool', 'SaaS Product', 'Automation', 'Analytics Platform', 'Consulting Accelerator', 'Process Improvement', 'Knowledge Management Tool', 'Workforce Optimization Tool', 'Other'];
+    const industries = ['Internal', 'Financial Services', 'Insurance', 'Retail', 'Telecommunications', 'Technology', 'Healthcare', 'Travel', 'Automotive', 'Public Sector', 'Utilities', 'Media', 'Manufacturing', 'Other'];
+    const functions = ['Operations', 'Marketing', 'Sales', 'HR', 'IT', 'Analytics', 'Finance', 'Legal', 'Training', 'Quality', 'WFM', 'Leadership', 'Innovation', 'Account Management'];
+    const regions = ['Local', 'Regional', 'Global'];
+
+    const strategicSliders = [
+      { id: 's_revenue', label: 'Revenue Growth', map: {0:'None', 1:'Potential', 2:'Definite'}, max: 2 },
+      { id: 's_cost', label: 'Cost Reduction', map: {0:'None', 1:'Potential', 2:'Definite'}, max: 2 },
+      { id: 's_prod', label: 'Productivity Improvement', map: {0:'None', 1:'Potential', 2:'Definite'}, max: 2 },
+      { id: 's_client', label: 'Client Experience', map: {0:'None', 1:'Potential', 2:'Definite'}, max: 2 },
+      { id: 's_emp', label: 'Employee Experience', map: {0:'None', 1:'Potential', 2:'Definite'}, max: 2 },
+      { id: 's_mkt', label: 'Market Expansion', map: {0:'None', 1:'Potential', 2:'Definite'}, max: 2 },
+      { id: 's_comp', label: 'Competitive Advantage', map: {0:'None', 1:'Potential', 2:'Definite'}, max: 2 },
+      { id: 's_inn', label: 'Innovation Leadership', map: {0:'None', 1:'Potential', 2:'Definite'}, max: 2 }
+    ];
+
+    const feasAdopMap = {1:'Low', 2:'Medium-Low', 3:'Medium', 4:'Medium-High', 5:'High'};
+    const feasibilitySliders = [
+      { id: 'f_tech', label: 'Technical Feasibility', map: feasAdopMap, max: 5 },
+      { id: 'f_data', label: 'Data Availability', map: feasAdopMap, max: 5 },
+      { id: 'f_res', label: 'Resource Availability', map: feasAdopMap, max: 5 },
+      { id: 'f_sec', label: 'Security Requirements', map: feasAdopMap, max: 5 },
+      { id: 'f_comp', label: 'Compliance Complexity', map: feasAdopMap, max: 5 },
+      { id: 'f_impl', label: 'Implementation Complexity', map: feasAdopMap, max: 5 }
+    ];
+    
+    const adoptionSliders = [
+      { id: 'a_ease', label: 'Ease of Use', map: feasAdopMap, max: 5 },
+      { id: 'a_train', label: 'Training Requirements', map: feasAdopMap, max: 5 },
+      { id: 'a_exec', label: 'Executive Sponsorship', map: feasAdopMap, max: 5 },
+      { id: 'a_user', label: 'User Demand', map: feasAdopMap, max: 5 }
+    ];
+
+    let aiCollapsed = false;
+
+    // --- Initialization ---
+    function init() {
+      // Theme
+      const savedTheme = localStorage.getItem('theme') || 'light';
+      document.body.setAttribute('data-theme', savedTheme);
+      document.getElementById('themeToggle').onclick = () => {
+        const t = document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        document.body.setAttribute('data-theme', t);
+        localStorage.setItem('theme', t);
+      };
+
+      // Sidebar
+      const sidebar = document.getElementById('sidebarNav');
+      navStructure.forEach(phase => {
+        const div = document.createElement('div');
+        div.className = 'nav-phase';
+        div.innerHTML = `<div class="nav-phase-title">${phase.phase}</div>`;
+        phase.sections.forEach(sec => {
+          div.innerHTML += `
+            <a href="#${sec.id}" class="nav-item" id="nav-${sec.id}">
+              ${sec.name}
+              <svg class="check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </a>
+          `;
+        });
+        sidebar.appendChild(div);
+      });
+      sidebar.innerHTML += `
+        <div class="score-panel">
+          <div style="font-family:var(--font-heading); font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px;">Opportunity Scorecard</div>
+          
+          <div class="score-item">
+            <span>Completeness</span>
+            <strong id="completenessText" style="color:var(--primary);">0%</strong>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" id="completenessFill" style="width:0%"></div></div>
+          
+          <div class="score-item">
+            <span>Strategic Score</span>
+            <strong id="score-strategic">0%</strong>
+          </div>
+          <div class="score-item">
+            <span>Feasibility Score</span>
+            <strong id="score-feasibility">0%</strong>
+          </div>
+          <div class="score-item">
+            <span>Adoption Score</span>
+            <strong id="score-adoption">0%</strong>
+          </div>
+        </div>
+      `;
+
+      // Form Generators
+      generateCheckboxes('cb_solutionType', solutionTypes, 'sol_');
+      generateCheckboxes('cb_industries', industries, 'ind_');
+      generateCheckboxes('cb_functions', functions, 'func_');
+      generateCheckboxes('cb_regions', regions, 'reg_');
+
+      generateSliders('sliders_strategic', strategicSliders, 0);
+      generateSliders('sliders_feasibility', feasibilitySliders, 1);
+      generateSliders('sliders_adoption', adoptionSliders, 1);
+
+      // Event Listeners for tracking completeness and scores
+      document.querySelectorAll('.canvas-field, input[type="checkbox"], input[type="range"]').forEach(el => {
+        el.addEventListener('input', updateCompleteness);
+        el.addEventListener('change', updateCompleteness);
+      });
+      
+      // Auto-expand textareas logic
+      document.querySelectorAll('.auto-expand').forEach(textarea => {
+        textarea.addEventListener('input', function() {
+          this.style.height = 'auto';
+          this.style.height = this.scrollHeight + 'px';
+        });
+      });
+
+      // Solution Type 'Other' logic
+      document.getElementById('sol_8').addEventListener('change', (e) => { // 'Other' is the 9th item (index 8)
+        document.getElementById('otherSolutionBox').style.display = e.target.checked ? 'block' : 'none';
+      });
+
+      // API Key
+      document.getElementById('apiKey').value = localStorage.getItem('geminiKey') || '';
+      
+      // Inject tooltips dynamically
+      const injectTooltip = (element, key) => {
+        const tip = TIPS[key];
+        if (!tip) return;
+        
+        // Skip if already has tooltip
+        if (element.querySelector('.tooltip-wrapper')) return;
+
+        const wrapper = document.createElement('span');
+        wrapper.className = 'tooltip-wrapper';
+        
+        const icon = document.createElement('span');
+        icon.className = 'tooltip-icon';
+        icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>';
+        
+        const popup = document.createElement('span');
+        popup.className = 'tooltip-popup';
+        
+        if (tip.description) {
+          const desc = document.createElement('div');
+          desc.className = 'tooltip-desc';
+          desc.textContent = tip.description;
+          popup.appendChild(desc);
+        }
+        if (tip.example) {
+          const ex = document.createElement('div');
+          ex.className = 'tooltip-example';
+          ex.textContent = 'e.g. "' + tip.example + '"';
+          popup.appendChild(ex);
+        }
+        if (tip.question) {
+          const qu = document.createElement('div');
+          qu.className = 'tooltip-question';
+          qu.textContent = tip.question;
+          popup.appendChild(qu);
+        }
+        
+        wrapper.appendChild(icon);
+        wrapper.appendChild(popup);
+        element.appendChild(wrapper);
+        
+        wrapper.addEventListener('mouseenter', () => {
+          const rect = popup.getBoundingClientRect();
+          if (rect.right > window.innerWidth - 20) popup.classList.add('align-right');
+          else popup.classList.remove('align-right');
+          
+          if (rect.top < 80) popup.classList.add('align-bottom');
+          else popup.classList.remove('align-bottom');
+        });
+      };
+
+      document.querySelectorAll('label').forEach(label => {
+        if (label.classList.contains('checkbox-label')) return;
+        if (label.childNodes.length === 0) return;
+        
+        // Find text node
+        const textNode = Array.from(label.childNodes).find(node => node.nodeType === 3);
+        if (!textNode) return;
+        
+        let text = textNode.textContent.trim().replace(/\s*\*$/, '');
+        if (TIPS[text]) {
+          injectTooltip(label, text);
+        }
+      });
+
+      document.querySelectorAll('.slider-label').forEach(label => {
+        const text = label.textContent.trim();
+        if (TIPS[text]) {
+          injectTooltip(label, text);
+        }
+      });
+
+      renderDashboard();
+    }
+
+    function generateCheckboxes(containerId, items, prefix) {
+      const container = document.getElementById(containerId);
+      items.forEach((item, i) => {
+        container.innerHTML += `
+          <label class="checkbox-label">
+            <input type="checkbox" id="${prefix}${i}" value="${item}" class="canvas-cb">
+            ${item}
+          </label>
+        `;
+      });
+    }
+
+    function generateSliders(containerId, sliders, defaultVal) {
+      const container = document.getElementById(containerId);
+      container.style.display = 'grid';
+      container.style.gridTemplateColumns = '1fr 1fr';
+      container.style.gap = '1.5rem';
+      
+      sliders.forEach(s => {
+        // Calculate the scale labels (min and max)
+        const scaleLabels = `<span>${s.map[0] || s.map[1]}</span><span>${s.map[s.max]}</span>`;
+        
+        container.innerHTML += `
+          <div class="slider-container">
+            <div class="slider-header">
+              <span class="slider-label">${s.label}</span>
+              <span class="slider-value" id="val_${s.id}">${s.map[defaultVal]}</span>
+            </div>
+            <input type="range" id="${s.id}" min="${defaultVal===0?0:1}" max="${s.max}" value="${defaultVal}" 
+                   oninput="document.getElementById('val_${s.id}').innerText = ${JSON.stringify(s.map)}[this.value]; window.updateCompleteness();">
+            <div class="slider-scale">${scaleLabels}</div>
+          </div>
+        `;
+      });
+    }
+
+    // --- Interaction ---
+    function handleScroll() {
+      const sections = document.querySelectorAll('.section-container');
+      const navItems = document.querySelectorAll('.nav-item');
+      
+      let current = '';
+      sections.forEach(sec => {
+        const rect = sec.getBoundingClientRect();
+        if (rect.top < window.innerHeight * 0.5) {
+          current = sec.id;
+          sec.classList.add('visible');
+        }
+      });
+
+      navItems.forEach(n => {
+        n.classList.remove('active');
+        if (n.getAttribute('href') === `#${current}`) n.classList.add('active');
+      });
+    }
+
+    // Expose updateCompleteness globally for inline handlers
+    window.updateCompleteness = function() {
+      // Completeness tracking
+      let filled = 0;
+      let total = navStructure.reduce((acc, phase) => acc + phase.sections.length, 0);
+      
+      navStructure.forEach(phase => {
+        phase.sections.forEach(sec => {
+          const el = document.getElementById(sec.id);
+          const inputs = el.querySelectorAll('input[type="text"], textarea, select');
+          const cbs = el.querySelectorAll('input[type="checkbox"]:checked');
+          
+          let isFilled = false;
+          if (inputs.length > 0) {
+            inputs.forEach(i => { if (i.value.trim() !== '') isFilled = true; });
+          }
+          if (cbs.length > 0) isFilled = true;
+          if (el.querySelectorAll('input[type="range"]').length > 0) isFilled = true;
+          
+          const navItem = document.getElementById(`nav-${sec.id}`);
+          if (isFilled) {
+            filled++;
+            navItem.classList.add('filled');
+          } else {
+            navItem.classList.remove('filled');
+          }
+        });
+      });
+      
+      const pct = Math.round((filled / total) * 100);
+      document.getElementById('completenessText').innerText = `${pct}%`;
+      document.getElementById('completenessFill').style.width = `${pct}%`;
+      
+      // Compute scores
+      let stratScore = 0; strategicSliders.forEach(s => stratScore += parseInt(document.getElementById(s.id).value));
+      let feasScore = 0; feasibilitySliders.forEach(s => feasScore += parseInt(document.getElementById(s.id).value));
+      let adopScore = 0; adoptionSliders.forEach(s => adopScore += parseInt(document.getElementById(s.id).value));
+      
+      // Calculate max possible scores
+      const maxStrat = strategicSliders.length * 2;
+      const maxFeas = feasibilitySliders.length * 5;
+      const maxAdop = adoptionSliders.length * 5;
+      
+      document.getElementById('score-strategic').innerText = `${Math.round((stratScore/maxStrat)*100)}%`;
+      document.getElementById('score-feasibility').innerText = `${Math.round((feasScore/maxFeas)*100)}%`;
+      document.getElementById('score-adoption').innerText = `${Math.round((adopScore/maxAdop)*100)}%`;
+    }
+
+    function toggleAI() {
+      const panel = document.getElementById('aiPanel');
+      const title = document.getElementById('aiPanelTitle');
+      const chat = document.getElementById('chatArea');
+      const input = document.getElementById('aiInputArea');
+      
+      aiCollapsed = !aiCollapsed;
+      if (aiCollapsed) {
+        panel.classList.add('collapsed');
+        title.style.display = 'none';
+        chat.style.display = 'none';
+        input.style.display = 'none';
+      } else {
+        panel.classList.remove('collapsed');
+        title.style.display = 'block';
+        chat.style.display = 'flex';
+        input.style.display = 'block';
+      }
+    }
+
+    // --- State Management (Views) ---
+    window.showDashboard = function() {
+      document.getElementById('dashboardView').style.display = 'flex';
+      document.getElementById('formView').style.display = 'none';
+      document.getElementById('formActions').style.display = 'none';
+      renderDashboard();
+    }
+    
+    window.showFormView = function() {
+      document.getElementById('dashboardView').style.display = 'none';
+      document.getElementById('formView').style.display = 'flex';
+      document.getElementById('formActions').style.display = 'flex';
+      
+      // Trigger textarea resizes
+      setTimeout(() => {
+        document.querySelectorAll('.auto-expand').forEach(ta => {
+          ta.style.height = 'auto';
+          ta.style.height = ta.scrollHeight + 'px';
+        });
+      }, 50);
+    }
+
+    // --- State Management (Data) ---
+    function getCanvasState() {
+      const state = { fields: {}, checkboxes: {}, sliders: {} };
+      document.querySelectorAll('.canvas-field').forEach(el => state.fields[el.id] = el.value);
+      document.querySelectorAll('.canvas-cb').forEach(el => state.checkboxes[el.id] = el.checked);
+      document.querySelectorAll('input[type="range"]').forEach(el => state.sliders[el.id] = el.value);
+      return state;
+    }
+
+    function setCanvasState(state) {
+      if (!state) return;
+      if (state.fields) Object.keys(state.fields).forEach(k => { if(document.getElementById(k)) document.getElementById(k).value = state.fields[k]; });
+      if (state.checkboxes) Object.keys(state.checkboxes).forEach(k => { if(document.getElementById(k)) document.getElementById(k).checked = state.checkboxes[k]; });
+      if (state.sliders) Object.keys(state.sliders).forEach(k => { 
+        const el = document.getElementById(k);
+        if(el) {
+          el.value = state.sliders[k];
+          el.dispatchEvent(new Event('input')); // trigger label update
+        }
+      });
+      // Check other checkbox logic
+      const otherCb = document.getElementById('sol_8');
+      if (otherCb) {
+        document.getElementById('otherSolutionBox').style.display = otherCb.checked ? 'block' : 'none';
+      }
+      
+      updateCompleteness();
+    }
+
+    function clearCanvas() {
+      document.querySelectorAll('.canvas-field').forEach(el => el.value = '');
+      document.querySelectorAll('.canvas-cb').forEach(el => el.checked = false);
+      document.querySelectorAll('input[type="range"]').forEach(el => {
+        el.value = el.min;
+        el.dispatchEvent(new Event('input'));
+      });
+      document.getElementById('out_diff').innerHTML = '';
+      document.getElementById('out_pitch').innerHTML = '';
+      document.getElementById('out_eval').innerHTML = '';
+      document.getElementById('otherSolutionBox').style.display = 'none';
+      
+      // reset textareas sizes
+      document.querySelectorAll('.auto-expand').forEach(ta => { ta.style.height = '100px'; });
+      
+      updateCompleteness();
+    }
+
+    window.newCanvas = function() {
+      currentLoadedIdea = null;
+      document.getElementById('draftName').value = '';
+      clearCanvas();
+      showFormView();
+    }
+
+    function renderDashboard() {
+      const drafts = JSON.parse(localStorage.getItem('drafts') || '{}');
+      const list = document.getElementById('ideasList');
+      list.innerHTML = '';
+      
+      if (Object.keys(drafts).length === 0) {
+        list.innerHTML = '<div style="color:var(--text-muted)">No saved drafts yet. Click "New Canvas" to begin.</div>';
+        return;
+      }
+      
+      Object.keys(drafts).forEach(name => {
+        list.innerHTML += `
+          <div class="idea-card" onclick="loadDraft('${name}')">
+            <h3 style="margin-bottom:8px; color:var(--primary)">${name}</h3>
+            <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Last saved: ${drafts[name].date}</div>
+            <button class="btn btn-outline" style="width:100%; justify-content:center" onclick="event.stopPropagation(); deleteDraft('${name}')">Delete</button>
+          </div>
+        `;
+      });
+    }
+
+    window.loadDraft = function(name) {
+      const drafts = JSON.parse(localStorage.getItem('drafts') || '{}');
+      if (drafts[name]) {
+        currentLoadedIdea = name;
+        document.getElementById('draftName').value = name;
+        clearCanvas();
+        setCanvasState(drafts[name].state);
+        showFormView();
+      }
+    }
+    
+    window.deleteDraft = function(name) {
+      if(confirm(`Are you sure you want to delete "${name}"?`)) {
+        const drafts = JSON.parse(localStorage.getItem('drafts') || '{}');
+        delete drafts[name];
+        localStorage.setItem('drafts', JSON.stringify(drafts));
+        renderDashboard();
+      }
+    }
+
+    // --- Modals ---
+    window.openModal = function(id) { document.getElementById(id).classList.add('active'); }
+    window.closeModal = function(id) { document.getElementById(id).classList.remove('active'); }
+    
+    window.saveSettings = function() {
+      localStorage.setItem('geminiKey', document.getElementById('apiKey').value);
+      closeModal('settingsModal');
+    }
+
+    window.saveDraft = function() {
+      const name = document.getElementById('draftName').value.trim();
+      if (!name) return alert('Enter a draft name');
+      
+      const drafts = JSON.parse(localStorage.getItem('drafts') || '{}');
+      drafts[name] = { date: new Date().toLocaleDateString(), state: getCanvasState() };
+      localStorage.setItem('drafts', JSON.stringify(drafts));
+      
+      currentLoadedIdea = name;
+      closeModal('saveModal');
+      alert('Idea saved successfully!');
+    }
+
+    // --- AI Functionality ---
+    async function callGemini(prompt, systemInstruction = null) {
+      const key = localStorage.getItem('geminiKey');
+      if (!key) {
+        openModal('settingsModal');
+        throw new Error('API Key required');
+      }
+
+      const body = {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7 }
+      };
+      if (systemInstruction) {
+        body.systemInstruction = { parts: [{ text: systemInstruction }] };
+      }
+
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        return data.candidates[0].content.parts[0].text;
+      } catch (e) {
+        alert('AI Error: ' + e.message);
+        return null;
+      }
+    }
+
+    // Basic markdown parser for display
+    function parseMarkdown(md) {
+      if (!md) return '';
+      return md
+        .replace(/## (.*$)/gim, '<h3>$1</h3>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/^\* (.*$)/gim, '<ul><li>$1</li></ul>')
+        .replace(/<\/ul>\n<ul>/gim, '')
+        .replace(/\n/g, '<br>');
+    }
+
+    function addChatBubble(text, isUser) {
+      const chat = document.getElementById('chatArea');
+      chat.innerHTML += `<div class="chat-bubble ${isUser ? 'chat-user' : 'chat-ai'}">${parseMarkdown(text)}</div>`;
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    window.sendChat = async function() {
+      const input = document.getElementById('chatInput');
+      const text = input.value.trim();
+      if (!text) return;
+      
+      addChatBubble(text, true);
+      input.value = '';
+      
+      const state = JSON.stringify(getCanvasState());
+      const prompt = `Current canvas data: ${state}\n\nUser asks: ${text}`;
+      const sys = "You are an expert innovation scoping assistant. Be concise and helpful.";
+      
+      addChatBubble('...', false);
+      const res = await callGemini(prompt, sys);
+      
+      // replace loading bubble
+      document.getElementById('chatArea').lastChild.remove();
+      if (res) addChatBubble(res, false);
+    }
+
+    window.aiAction = async function(type) {
+      if (type === 'Critique') {
+        const state = JSON.stringify(getCanvasState());
+        addChatBubble("Critique my current canvas", true);
+        addChatBubble('Analyzing...', false);
+        const res = await callGemini(`Critique this opportunity canvas:\n${state}\nIdentify missing gaps, risks, or weak value propositions. Keep it brief and bulleted.`);
+        document.getElementById('chatArea').lastChild.remove();
+        if(res) addChatBubble(res, false);
+      } else if (type === 'Autofill') {
+        addChatBubble("Suggest ideas to autofill the canvas", true);
+        addChatBubble("I can't directly write to the form in this standalone version, but here is a suggested complete concept:\n\n1. Problem: Manual data entry is slow.\n2. Users: Operations team\n3. Value: Automate entry to save 20hrs/week.\n4. Type: Internal Tool", false);
+      }
+    }
+
+    window.generateAI = async function(type) {
+      const state = JSON.stringify(getCanvasState());
+      let prompt = '';
+      let outId = '';
+      
+      if (type === 'diff') {
+        prompt = `Based on this canvas: ${state}\nWrite a short competitive differentiation analysis comparing us to alternatives.`;
+        outId = 'out_diff';
+      } else if (type === 'pitch') {
+        prompt = `Based on this canvas: ${state}\nWrite a compelling 2-paragraph executive pitch for this project.`;
+        outId = 'out_pitch';
+      } else if (type === 'eval') {
+        prompt = `Based on this canvas: ${state}\nWrite a structured strategic evaluation covering Strategic Potential, Risks, and Recommendations.`;
+        outId = 'out_eval';
+      }
+
+      const btn = event.target;
+      const originalText = btn.innerText;
+      btn.innerText = 'Generating...';
+      btn.disabled = true;
+
+      const res = await callGemini(prompt);
+      
+      btn.innerText = originalText;
+      btn.disabled = false;
+      
+      if (res) {
+        document.getElementById(outId).innerHTML = parseMarkdown(res);
+      }
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>
+
+
+
+
+
+

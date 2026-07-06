@@ -1,0 +1,82 @@
+name: Build and Deploy to GCP
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+  REPO_NAME: analytics-ai-hub
+  BACKEND_SERVICE: analytics-hub-api
+  FRONTEND_SERVICE: analytics-hub-web
+
+jobs:
+  deploy:
+    name: Build, Push, and Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Log in to Google Cloud using a Service Account Key
+      - name: Google Auth
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # Set up Cloud SDK
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # Authorize Docker to push to GCP Artifact Registry
+      - name: Configure Docker Auth
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      # 1. Build and push Backend image to Artifact Registry
+      - name: Build and Push Backend Image
+        run: |
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/backend:${{ github.sha }}"
+          docker build -t $IMAGE_TAG ./innovation-hub/apps/api
+          docker push $IMAGE_TAG
+          echo "BACKEND_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
+
+      # 2. Deploy Backend to Cloud Run
+      - name: Deploy Backend to Cloud Run
+        id: deploy-backend
+        run: |
+          gcloud run deploy ${{ env.BACKEND_SERVICE }} \
+            --image ${{ env.BACKEND_IMAGE }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --quiet
+          
+          # Retrieve the backend service URL
+          BACKEND_URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE }} --region ${{ env.REGION }} --format='value(status.url)')
+          echo "BACKEND_URL=$BACKEND_URL" >> $GITHUB_ENV
+
+      # 3. Build and push Frontend image (injecting the newly deployed Backend URL as VITE_API_BASE)
+      - name: Build and Push Frontend Image
+        run: |
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/frontend:${{ github.sha }}"
+          docker build \
+            --build-arg VITE_API_BASE=${{ env.BACKEND_URL }} \
+            -t $IMAGE_TAG ./innovation-hub/apps/web
+          docker push $IMAGE_TAG
+          echo "FRONTEND_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
+
+      # 4. Deploy Frontend to Cloud Run
+      - name: Deploy Frontend to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.FRONTEND_SERVICE }} \
+            --image ${{ env.FRONTEND_IMAGE }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --quiet
