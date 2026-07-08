@@ -187,7 +187,7 @@ function ToolCard({ t, onOpen, compareIds, onToggleCompare, compareMode }) {
   );
 }
 
-function FeaturedCarousel({ tools, onOpen }) {
+function FeaturedCarousel({ tools, onOpen, carouselSort, setCarouselSort }) {
   const carouselRef = React.useRef(null);
   const [activeIndex, setActiveIndex] = React.useState(0);
   const isDown = React.useRef(false);
@@ -293,7 +293,21 @@ function FeaturedCarousel({ tools, onOpen }) {
           <Sparkles size={18} style={{ color: 'var(--warning)', fill: 'var(--warning)' }} />
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', fontWeight: 700, margin: 0 }}>Featured Solutions</h2>
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <select
+            value={carouselSort}
+            onChange={(e) => setCarouselSort(e.target.value)}
+            style={{
+              height: '36px', padding: '0 12px', borderRadius: '8px', boxSizing: 'border-box',
+              fontSize: 12.5, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)',
+              width: 140, cursor: 'pointer', outline: 'none'
+            }}
+          >
+            <option value="newest">Newest First</option>
+            <option value="roi_desc">ROI: High to Low</option>
+            <option value="votes_desc">Most Popular</option>
+            <option value="name_asc">Name: A-Z</option>
+          </select>
           <button 
             onClick={() => scroll('left')} 
             style={{ 
@@ -465,6 +479,8 @@ export default function CatalogView() {
   const [secQueries, setSecQueries] = useState({});
   const [secStatusFilter, setSecStatusFilter] = useState({});
   const [secDeptFilter, setSecDeptFilter] = useState({});
+  const [secSortFilter, setSecSortFilter] = useState({});
+  const [carouselSort, setCarouselSort] = useState('newest');
   const [compareIds, setCompareIds] = useState([]);
   const [comparing, setComparing] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
@@ -481,6 +497,16 @@ export default function CatalogView() {
   
   // High impact or pilot tools are featured
   const featuredTools = tools.filter(t => t.featured);
+  const sortedFeatured = [...featuredTools];
+  if (carouselSort === 'roi_desc') {
+    sortedFeatured.sort((a, b) => (b.roi || 0) - (a.roi || 0));
+  } else if (carouselSort === 'name_asc') {
+    sortedFeatured.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  } else if (carouselSort === 'votes_desc') {
+    sortedFeatured.sort((a, b) => (b.votes || 0) - (a.votes || 0));
+  } else {
+    sortedFeatured.sort((a, b) => (b.id || 0) - (a.id || 0));
+  }
 
   return (
     <div style={{ position: 'relative', zIndex: 1 }}>
@@ -508,7 +534,14 @@ export default function CatalogView() {
       </div>
 
       {/* Featured Banner Carousel */}
-      {!query && activeCategory === 'All' && <FeaturedCarousel tools={featuredTools} onOpen={(id) => nav(`/tools/${id}`)} />}
+      {!query && activeCategory === 'All' && (
+        <FeaturedCarousel 
+          tools={sortedFeatured} 
+          onOpen={(id) => nav(`/tools/${id}`)} 
+          carouselSort={carouselSort}
+          setCarouselSort={setCarouselSort}
+        />
+      )}
       </div>
       </div>
 
@@ -579,6 +612,7 @@ export default function CatalogView() {
         const sQuery = secQueries[sec.id] || '';
         const sStatus = secStatusFilter[sec.id] || 'All';
         const sDept = secDeptFilter[sec.id] || 'All';
+        const sSort = secSortFilter[sec.id] || 'newest';
         
         // Compute unique departments for this section's items
         const departments = ['All', ...new Set(items.map(t => t.department).filter(Boolean))];
@@ -592,6 +626,19 @@ export default function CatalogView() {
           const hay = [t.name, t.owner, t.department, t.problem, t.status, (t.tags || []).join(' '), t.account || ''].join(' ').toLowerCase();
           return hay.includes(q);
         });
+
+        const sortedItems = [...filteredItems];
+        if (sSort === 'roi_desc') {
+          sortedItems.sort((a, b) => (b.roi || 0) - (a.roi || 0));
+        } else if (sSort === 'roi_asc') {
+          sortedItems.sort((a, b) => (a.roi || 0) - (b.roi || 0));
+        } else if (sSort === 'name_asc') {
+          sortedItems.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        } else if (sSort === 'votes_desc') {
+          sortedItems.sort((a, b) => (b.votes || 0) - (a.votes || 0));
+        } else {
+          sortedItems.sort((a, b) => (b.id || 0) - (a.id || 0));
+        }
 
         if (items.length === 0) return null;
         return (
@@ -609,7 +656,7 @@ export default function CatalogView() {
                 </div>
               </div>
               
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'nowrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
 
                 {/* Section search bar */}
                 <div style={{ position: 'relative', width: '220px' }}>
@@ -630,7 +677,8 @@ export default function CatalogView() {
                   onChange={(e) => setSecStatusFilter({ ...secStatusFilter, [sec.id]: e.target.value })}
                   style={{
                     height: '36px', padding: '0 12px', borderRadius: '8px', boxSizing: 'border-box',
-                    fontSize: 12.5, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)'
+                    fontSize: 12.5, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)',
+                    cursor: 'pointer', outline: 'none'
                   }}
                 >
                   <option value="All">All Statuses</option>
@@ -645,7 +693,8 @@ export default function CatalogView() {
                     onChange={(e) => setSecDeptFilter({ ...secDeptFilter, [sec.id]: e.target.value })}
                     style={{
                       height: '36px', padding: '0 12px', borderRadius: '8px', boxSizing: 'border-box',
-                      fontSize: 12.5, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)'
+                      fontSize: 12.5, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)',
+                      cursor: 'pointer', outline: 'none'
                     }}
                   >
                     {departments.map(dept => (
@@ -653,16 +702,32 @@ export default function CatalogView() {
                     ))}
                   </select>
                 )}
+
+                <select
+                  value={sSort}
+                  onChange={(e) => setSecSortFilter({ ...secSortFilter, [sec.id]: e.target.value })}
+                  style={{
+                    height: '36px', padding: '0 12px', borderRadius: '8px', boxSizing: 'border-box',
+                    fontSize: 12.5, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)',
+                    cursor: 'pointer', outline: 'none'
+                  }}
+                >
+                  <option value="newest">Newest First</option>
+                  <option value="roi_desc">ROI: High to Low</option>
+                  <option value="roi_asc">ROI: Low to High</option>
+                  <option value="votes_desc">Most Popular</option>
+                  <option value="name_asc">Name: A-Z</option>
+                </select>
               </div>
             </div>
             
-            {filteredItems.length === 0 ? (
+            {sortedItems.length === 0 ? (
               <div style={{ padding: '20px 0', color: 'var(--text-muted)', fontSize: 13, textAlign: 'center' }}>
                 No matching products in this section.
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 18 }}>
-                {filteredItems.map((t) => (
+                {sortedItems.map((t) => (
                   <ToolCard 
                     key={t.id} 
                     t={t} 
