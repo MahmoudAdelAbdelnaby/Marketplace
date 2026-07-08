@@ -30,13 +30,13 @@ export default function ManageView() {
   };
 
   useEffect(() => { 
-    api('/tools').then(setTools).catch(() => {});
-    api('/ideas').then(setIdeas).catch(() => {});
+    api('/my/tools').then(setTools).catch(() => {});
+    api('/my/ideas').then(setIdeas).catch(() => {});
     loadDraft();
   }, [me]);
 
-  const myTools = tools.filter(t => t.owner_id === me.id);
-  const myIdeas = ideas.filter(i => i.owner_id === me.id);
+  const myTools = tools;
+  const myIdeas = ideas;
   const myVocIdeas = myIdeas.filter(i => i.voc_id !== null && i.voc_id !== undefined);
   
   const totalVotes = myTools.reduce((sum, t) => sum + (t.votes || 0), 0) + 
