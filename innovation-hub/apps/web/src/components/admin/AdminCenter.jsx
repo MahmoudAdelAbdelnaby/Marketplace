@@ -59,6 +59,16 @@ export default function AdminCenter() {
     }
   };
 
+  const deleteUser = async (id, name) => {
+    if (!window.confirm(`Are you sure you want to permanently delete user ${name}? This action cannot be undone.`)) return;
+    try {
+      await api(`/admin/users/${id}`, { method: 'DELETE' });
+      load();
+    } catch (e) {
+      alert(`Failed to delete user: ${e.message}`);
+    }
+  };
+
   const approveUser = async (userId, selectedRole) => {
     try {
       await api(`/admin/users/${userId}/approve`, { method: 'POST', body: { role: selectedRole } });
@@ -359,6 +369,23 @@ export default function AdminCenter() {
             >
               Reset PW
             </button>
+            {u.id !== me.id && (
+              <button 
+                onClick={() => deleteUser(u.id, u.name)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: '#fee2e2',
+                  color: '#ef4444',
+                  fontWeight: 600,
+                  fontSize: 12,
+                  cursor: 'pointer'
+                }}
+              >
+                Delete
+              </button>
+            )}
           </div>
         ))}
         {users.length === 0 && <div style={{ padding: 20, color: 'var(--text-muted)' }}>No users.</div>}

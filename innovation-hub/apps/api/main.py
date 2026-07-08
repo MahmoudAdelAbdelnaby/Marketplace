@@ -1058,6 +1058,16 @@ def admin_decline_user(user_id: int, u: User = Depends(require("admin")), s: Ses
     return {"ok": True}
 
 
+@app.delete("/admin/users/{user_id}")
+def admin_delete_user(user_id: int, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    target = s.get(User, user_id)
+    if not target: raise HTTPException(404, "User not found")
+    if target.id == u.id:
+        raise HTTPException(400, "You cannot delete your own admin account.")
+    s.delete(target); s.commit()
+    return {"ok": True}
+
+
 @app.get("/admin/backup")
 def get_backup(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
     tools_all = s.exec(select(Tool)).all()
