@@ -240,22 +240,39 @@ export default function ToolForm({ tool, onClose }) {
               <div>
                 <label style={lbl}>Custom Card Image (URL or Upload)</label>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <input value={f.img_url} onChange={set('img_url')} placeholder="https://…/image.png" style={{ flex: 1 }} />
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: 'var(--bg-card)' }} title="Upload Image">
-                    <Upload size={14} />
-                    <input type="file" accept="image/*" onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        if (file.size > 5 * 1024 * 1024) {
-                          alert('Image file size exceeds the 5MB limit.');
-                          return;
+                  <input 
+                    value={f.img_url?.startsWith('data:') ? '[Uploaded Image]' : f.img_url} 
+                    onChange={set('img_url')} 
+                    placeholder="https://…/image.png" 
+                    style={{ flex: 1 }} 
+                    disabled={f.img_url?.startsWith('data:')}
+                  />
+                  {f.img_url?.startsWith('data:') ? (
+                    <button 
+                      type="button" 
+                      onClick={() => setF(p => ({ ...p, img_url: '' }))}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid #fee2e2', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: '#fee2e2', color: '#ef4444' }}
+                      title="Clear Image"
+                    >
+                      <X size={14} />
+                    </button>
+                  ) : (
+                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: 'var(--bg-card)' }} title="Upload Image">
+                      <Upload size={14} />
+                      <input type="file" accept="image/*" onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.size > 5 * 1024 * 1024) {
+                            alert('Image file size exceeds the 5MB limit.');
+                            return;
+                          }
+                          const r = new FileReader();
+                          r.onload = () => setF(p => ({ ...p, img_url: String(r.result) }));
+                          r.readAsDataURL(file);
                         }
-                        const r = new FileReader();
-                        r.onload = () => setF(p => ({ ...p, img_url: String(r.result) }));
-                        r.readAsDataURL(file);
-                      }
-                    }} style={{ display: 'none' }} />
-                  </label>
+                      }} style={{ display: 'none' }} />
+                    </label>
+                  )}
                 </div>
               </div>
               <div><label style={lbl}>Deployed Client Account</label><input value={f.account} onChange={set('account')} placeholder="e.g. Concentrix" /></div>
@@ -408,58 +425,92 @@ export default function ToolForm({ tool, onClose }) {
                 <div>
                   <label style={lbl}>Sample data (link or upload, max 5MB)</label>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <input value={f.sample} onChange={set('sample')} placeholder="https://… or upload files" style={{ flex: 1 }} />
-                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: 'var(--bg-card)' }} title="Upload Data File">
-                      <Upload size={14} />
-                      <input type="file" multiple onChange={(e) => {
-                        const files = Array.from(e.target.files || []);
-                        if (files.length === 0) return;
-                        
-                        const oversized = files.find(f => f.size > 5 * 1024 * 1024);
-                        if (oversized) {
-                          alert(`File "${oversized.name}" exceeds the 5MB size limit.`);
-                          return;
-                        }
+                    <input 
+                      value={f.sample?.startsWith('[') ? '[Uploaded Multiple Files]' : (f.sample?.startsWith('data:') ? '[Uploaded File]' : f.sample)} 
+                      onChange={set('sample')} 
+                      placeholder="https://… or upload files" 
+                      style={{ flex: 1 }} 
+                      disabled={f.sample?.startsWith('data:') || f.sample?.startsWith('[')}
+                    />
+                    {f.sample?.startsWith('data:') || f.sample?.startsWith('[') ? (
+                      <button 
+                        type="button" 
+                        onClick={() => setF(p => ({ ...p, sample: '' }))}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid #fee2e2', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: '#fee2e2', color: '#ef4444' }}
+                        title="Clear Data File"
+                      >
+                        <X size={14} />
+                      </button>
+                    ) : (
+                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: 'var(--bg-card)' }} title="Upload Data File">
+                        <Upload size={14} />
+                        <input type="file" multiple onChange={(e) => {
+                          const files = Array.from(e.target.files || []);
+                          if (files.length === 0) return;
+                          
+                          const oversized = files.find(f => f.size > 5 * 1024 * 1024);
+                          if (oversized) {
+                            alert(`File "${oversized.name}" exceeds the 5MB size limit.`);
+                            return;
+                          }
 
-                        if (files.length === 1) {
-                          const r = new FileReader();
-                          r.onload = () => setF(p => ({ ...p, sample: String(r.result) }));
-                          r.readAsDataURL(files[0]);
-                        } else {
-                          const promises = files.map(file => {
-                            return new Promise((resolve) => {
-                              const r = new FileReader();
-                              r.onload = () => resolve({ name: file.name, type: file.type, data: String(r.result) });
-                              r.readAsDataURL(file);
+                          if (files.length === 1) {
+                            const r = new FileReader();
+                            r.onload = () => setF(p => ({ ...p, sample: String(r.result) }));
+                            r.readAsDataURL(files[0]);
+                          } else {
+                            const promises = files.map(file => {
+                              return new Promise((resolve) => {
+                                const r = new FileReader();
+                                r.onload = () => resolve({ name: file.name, type: file.type, data: String(r.result) });
+                                r.readAsDataURL(file);
+                              });
                             });
-                          });
-                          Promise.all(promises).then(results => {
-                            setF(p => ({ ...p, sample: JSON.stringify(results) }));
-                          });
-                        }
-                      }} style={{ display: 'none' }} />
-                    </label>
+                            Promise.all(promises).then(results => {
+                              setF(p => ({ ...p, sample: JSON.stringify(results) }));
+                            });
+                          }
+                        }} style={{ display: 'none' }} />
+                      </label>
+                    )}
                   </div>
                 </div>
                 <div>
                   <label style={lbl}>Configs (link or upload, max 5MB)</label>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <input value={f.configs} onChange={set('configs')} placeholder="https://… or upload file" style={{ flex: 1 }} />
-                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: 'var(--bg-card)' }} title="Upload Config File">
-                      <Upload size={14} />
-                      <input type="file" onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          if (file.size > 5 * 1024 * 1024) {
-                            alert('Configs file size exceeds the 5MB limit.');
-                            return;
+                    <input 
+                      value={f.configs?.startsWith('data:') ? '[Uploaded Config File]' : f.configs} 
+                      onChange={set('configs')} 
+                      placeholder="https://… or upload file" 
+                      style={{ flex: 1 }} 
+                      disabled={f.configs?.startsWith('data:')}
+                    />
+                    {f.configs?.startsWith('data:') ? (
+                      <button 
+                        type="button" 
+                        onClick={() => setF(p => ({ ...p, configs: '' }))}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid #fee2e2', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: '#fee2e2', color: '#ef4444' }}
+                        title="Clear Config File"
+                      >
+                        <X size={14} />
+                      </button>
+                    ) : (
+                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: 'var(--bg-card)' }} title="Upload Config File">
+                        <Upload size={14} />
+                        <input type="file" onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.size > 5 * 1024 * 1024) {
+                              alert('Configs file size exceeds the 5MB limit.');
+                              return;
+                            }
+                            const r = new FileReader();
+                            r.onload = () => setF(p => ({ ...p, configs: String(r.result) }));
+                            r.readAsDataURL(file);
                           }
-                          const r = new FileReader();
-                          r.onload = () => setF(p => ({ ...p, configs: String(r.result) }));
-                          r.readAsDataURL(file);
-                        }
-                      }} style={{ display: 'none' }} />
-                    </label>
+                        }} style={{ display: 'none' }} />
+                      </label>
+                    )}
                   </div>
                 </div>
               </div>
@@ -480,44 +531,78 @@ export default function ToolForm({ tool, onClose }) {
                 <div>
                   <label style={lbl}>Video (URL or Upload, max 5MB)</label>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <input value={f.video_url} onChange={set('video_url')} placeholder="YouTube / mp4 link" style={{ flex: 1 }} />
-                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: 'var(--bg-card)' }} title="Upload Video">
-                      <Upload size={14} />
-                      <input type="file" accept="video/*" onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          if (file.size > 5 * 1024 * 1024) {
-                            alert('Video file size exceeds the 5MB limit.');
-                            return;
+                    <input 
+                      value={f.video_url?.startsWith('data:') ? '[Uploaded Video]' : f.video_url} 
+                      onChange={set('video_url')} 
+                      placeholder="YouTube / mp4 link" 
+                      style={{ flex: 1 }} 
+                      disabled={f.video_url?.startsWith('data:')}
+                    />
+                    {f.video_url?.startsWith('data:') ? (
+                      <button 
+                        type="button" 
+                        onClick={() => setF(p => ({ ...p, video_url: '' }))}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid #fee2e2', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: '#fee2e2', color: '#ef4444' }}
+                        title="Clear Video"
+                      >
+                        <X size={14} />
+                      </button>
+                    ) : (
+                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: 'var(--bg-card)' }} title="Upload Video">
+                        <Upload size={14} />
+                        <input type="file" accept="video/*" onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.size > 5 * 1024 * 1024) {
+                              alert('Video file size exceeds the 5MB limit.');
+                              return;
+                            }
+                            const r = new FileReader();
+                            r.onload = () => setF(p => ({ ...p, video_url: String(r.result) }));
+                            r.readAsDataURL(file);
                           }
-                          const r = new FileReader();
-                          r.onload = () => setF(p => ({ ...p, video_url: String(r.result) }));
-                          r.readAsDataURL(file);
-                        }
-                      }} style={{ display: 'none' }} />
-                    </label>
+                        }} style={{ display: 'none' }} />
+                      </label>
+                    )}
                   </div>
                 </div>
               </div>
               <div style={{ marginTop: 8 }}>
                 <label style={lbl}>Pitch deck (PPT URL or Upload, max 5MB)</label>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <input value={f.ppt_url} onChange={set('ppt_url')} placeholder="https://…/deck.pptx" style={{ flex: 1 }} />
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: 'var(--bg-card)' }} title="Upload PPT">
-                    <Upload size={14} />
-                    <input type="file" accept=".ppt,.pptx,.pdf" onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        if (file.size > 5 * 1024 * 1024) {
-                          alert('Pitch deck file size exceeds the 5MB limit.');
-                          return;
+                  <input 
+                    value={f.ppt_url?.startsWith('data:') ? '[Uploaded Pitch Deck]' : f.ppt_url} 
+                    onChange={set('ppt_url')} 
+                    placeholder="https://…/deck.pptx" 
+                    style={{ flex: 1 }} 
+                    disabled={f.ppt_url?.startsWith('data:')}
+                  />
+                  {f.ppt_url?.startsWith('data:') ? (
+                    <button 
+                      type="button" 
+                      onClick={() => setF(p => ({ ...p, ppt_url: '' }))}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid #fee2e2', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: '#fee2e2', color: '#ef4444' }}
+                      title="Clear Pitch Deck"
+                    >
+                      <X size={14} />
+                    </button>
+                  ) : (
+                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: 'var(--bg-card)' }} title="Upload PPT">
+                      <Upload size={14} />
+                      <input type="file" accept=".ppt,.pptx,.pdf" onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.size > 5 * 1024 * 1024) {
+                            alert('Pitch deck file size exceeds the 5MB limit.');
+                            return;
+                          }
+                          const r = new FileReader();
+                          r.onload = () => setF(p => ({ ...p, ppt_url: String(r.result) }));
+                          r.readAsDataURL(file);
                         }
-                        const r = new FileReader();
-                        r.onload = () => setF(p => ({ ...p, ppt_url: String(r.result) }));
-                        r.readAsDataURL(file);
-                      }
-                    }} style={{ display: 'none' }} />
-                  </label>
+                      }} style={{ display: 'none' }} />
+                    </label>
+                  )}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.45 }}>
                   Recommended: Upload your slide deck to the <a href="https://cnxmail.sharepoint.com/sites/msteams_6fa7d4/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2Fmsteams%5F6fa7d4%2FShared%20Documents%2FTayim%2FInnovation%20Decks&viewid=4016852e%2D4dea%2D4b92%2Dab08%2Dae8ac56ee35b&newTargetListUrl=%2Fsites%2Fmsteams%5F6fa7d4%2FShared%20Documents&viewpath=%2Fsites%2Fmsteams%5F6fa7d4%2FShared%20Documents%2FForms%2FAllItems%2Easpx" target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline', fontWeight: 600 }}>Concentrix SharePoint Innovation Decks repository</a> and paste the sharing link here.
