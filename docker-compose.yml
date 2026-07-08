@@ -20,7 +20,7 @@ services:
       context: ./innovation-hub/apps/web
       dockerfile: Dockerfile
       args:
-        - VITE_API_BASE=http://localhost:8000
+        - VITE_API_BASE=
     image: marketplace-frontend
     container_name: marketplace-frontend-1
     ports:

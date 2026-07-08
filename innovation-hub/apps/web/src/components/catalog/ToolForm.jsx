@@ -28,6 +28,7 @@ const IMPL = [
 const lbl = { fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', display: 'block', textOverflow: 'ellipsis', overflow: 'hidden' };
 
 export default function ToolForm({ tool, onClose }) {
+  const editing = !!tool;
   const navigate = useNavigate();
   const { tools, addTool, updateTool } = useCatalogStore();
   const user = useAuthStore((s) => s.user);
