@@ -3,19 +3,36 @@ import { LayoutGrid, PenLine, ChevronUp, Lightbulb, Wrench, Megaphone, ThumbsUp 
 import { api } from '../../api';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useNavigate } from 'react-router-dom';
+import ToolForm from '../catalog/ToolForm';
 
 export default function ManageView() {
   const me = useAuthStore((s) => s.user);
   const nav = useNavigate();
   const [tools, setTools] = useState([]);
   const [ideas, setIdeas] = useState([]);
+  const [submittingTool, setSubmittingTool] = useState(false);
+  const [draft, setDraft] = useState(null);
   
   // Hover states for buttons
   const [hoveredBtnId, setHoveredBtnId] = useState(null);
 
+  const loadDraft = () => {
+    try {
+      const local = localStorage.getItem('tool_submit_draft');
+      if (local) {
+        setDraft(JSON.parse(local));
+      } else {
+        setDraft(null);
+      }
+    } catch (e) {
+      setDraft(null);
+    }
+  };
+
   useEffect(() => { 
     api('/tools').then(setTools).catch(() => {});
     api('/ideas').then(setIdeas).catch(() => {});
+    loadDraft();
   }, [me]);
 
   const myTools = tools.filter(t => t.owner_id === me.id);
@@ -79,8 +96,20 @@ export default function ManageView() {
 
   return (
     <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '1400px', margin: '0 auto', padding: '32px 24px' }}>
-      <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10 }}><LayoutGrid /> My Workspace</h1>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: 24 }}>Manage your submitted ideas and tools.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 12 }}>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}><LayoutGrid /> My Workspace</h1>
+        {!draft && (
+          <button 
+            onClick={() => setSubmittingTool(true)}
+            style={getBtnStyle('submit-new-tool', true)}
+            onMouseEnter={() => setHoveredBtnId('submit-new-tool')}
+            onMouseLeave={() => setHoveredBtnId(null)}
+          >
+            <PenLine size={14} /> Submit a Tool
+          </button>
+        )}
+      </div>
+      <p style={{ color: 'var(--text-secondary)', marginBottom: 24, marginTop: 0 }}>Manage your submitted ideas and tools.</p>
 
       {/* 4 Stats Cards at the Top */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 20, marginBottom: 28 }}>
@@ -125,6 +154,40 @@ export default function ManageView() {
           <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, marginBottom: 6 }}>My Tools / Products</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>Tools where you are the owner.</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 450, overflowY: 'auto', paddingRight: 6 }}>
+            {draft && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: 'var(--secondary)', border: '1px dashed var(--primary)', borderRadius: 12 }}>
+                <div style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 14.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{draft.name || 'Untitled Draft Tool'}</span>
+                    <span style={{ background: 'var(--primary)', color: '#fff', padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                      DRAFT
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4 }}>Saved locally on your device</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  <button 
+                    onClick={() => {
+                      if (window.confirm('Are you sure you want to discard this draft?')) {
+                        localStorage.removeItem('tool_submit_draft');
+                        loadDraft();
+                      }
+                    }}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: 'none', background: '#fee2e2', color: '#ef4444', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}
+                  >
+                    Discard
+                  </button>
+                  <button 
+                    onClick={() => setSubmittingTool(true)}
+                    style={getBtnStyle('resume-draft', true)}
+                    onMouseEnter={() => setHoveredBtnId('resume-draft')}
+                    onMouseLeave={() => setHoveredBtnId(null)}
+                  >
+                    <PenLine size={14} /> Resume
+                  </button>
+                </div>
+              </div>
+            )}
             {myTools.map(t => (
               <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 12 }}>
                 <div>
@@ -146,7 +209,7 @@ export default function ManageView() {
                 </button>
               </div>
             ))}
-            {myTools.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: 20 }}>No tools owned.</div>}
+            {myTools.length === 0 && !draft && <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: 20 }}>No tools owned.</div>}
           </div>
         </div>
         
@@ -182,6 +245,7 @@ export default function ManageView() {
           </div>
         </div>
       </div>
+      {submittingTool && <ToolForm onClose={() => { setSubmittingTool(false); loadDraft(); }} />}
     </div>
   );
 }
