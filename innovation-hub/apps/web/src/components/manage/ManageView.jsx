@@ -98,16 +98,14 @@ export default function ManageView() {
     <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '1400px', margin: '0 auto', padding: '32px 24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 12 }}>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}><LayoutGrid /> My Workspace</h1>
-        {!draft && (
-          <button 
-            onClick={() => setSubmittingTool(true)}
-            style={getBtnStyle('submit-new-tool', true)}
-            onMouseEnter={() => setHoveredBtnId('submit-new-tool')}
-            onMouseLeave={() => setHoveredBtnId(null)}
-          >
-            <PenLine size={14} /> Submit a Tool
-          </button>
-        )}
+        <button 
+          onClick={() => setSubmittingTool(true)}
+          style={getBtnStyle('submit-new-tool', true)}
+          onMouseEnter={() => setHoveredBtnId('submit-new-tool')}
+          onMouseLeave={() => setHoveredBtnId(null)}
+        >
+          <PenLine size={14} /> Submit a Tool
+        </button>
       </div>
       <p style={{ color: 'var(--text-secondary)', marginBottom: 24, marginTop: 0 }}>Manage your submitted ideas and tools.</p>
 
