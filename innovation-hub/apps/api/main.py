@@ -218,6 +218,10 @@ class RoleIn(BaseModel):
     role: str
 
 
+class AdminPasswordResetIn(BaseModel):
+    password: str
+
+
 class InviteIn(BaseModel):
     email: str
     role: str
@@ -1000,6 +1004,28 @@ def admin_set_role(user_id: int, body: RoleIn, u: User = Depends(require("admin"
     target = s.get(User, user_id)
     if not target: raise HTTPException(404, "Not found")
     target.role = body.role
+    s.add(target); s.commit()
+    return public_user(target)
+
+
+@app.put("/admin/users/{user_id}/password")
+def admin_reset_password(user_id: int, body: AdminPasswordResetIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    target = s.get(User, user_id)
+    if not target: raise HTTPException(404, "Not found")
+    
+    password = body.password
+    if len(password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters long.")
+    if not re.search(r"[A-Z]", password):
+        raise HTTPException(400, "Password must contain at least one uppercase letter.")
+    if not re.search(r"[a-z]", password):
+        raise HTTPException(400, "Password must contain at least one lowercase letter.")
+    if not re.search(r"\d", password):
+        raise HTTPException(400, "Password must contain at least one digit.")
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        raise HTTPException(400, "Password must contain at least one special character.")
+        
+    target.password_hash = pwd.hash(password)
     s.add(target); s.commit()
     return public_user(target)
 

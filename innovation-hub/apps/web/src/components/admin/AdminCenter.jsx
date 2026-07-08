@@ -47,6 +47,18 @@ export default function AdminCenter() {
     catch (e) { setErr(e.message); }
   };
 
+  const resetUserPassword = async (id, name) => {
+    const pw = window.prompt(`Enter a new temporary password for ${name}:`);
+    if (pw === null) return;
+    if (!pw) { alert('Password cannot be empty.'); return; }
+    try {
+      await api(`/admin/users/${id}/password`, { method: 'PUT', body: { password: pw } });
+      alert(`Password for ${name} was reset successfully!`);
+    } catch (e) {
+      alert(`Failed to reset password: ${e.message}`);
+    }
+  };
+
   const approveUser = async (userId, selectedRole) => {
     try {
       await api(`/admin/users/${userId}/approve`, { method: 'POST', body: { role: selectedRole } });
@@ -332,6 +344,21 @@ export default function AdminCenter() {
             <select value={u.role} onChange={(e) => setRole(u.id, e.target.value)} style={{ width: 170 }}>
               {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
             </select>
+            <button 
+              onClick={() => resetUserPassword(u.id, u.name)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 8,
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-main)',
+                color: 'var(--text-primary)',
+                fontWeight: 600,
+                fontSize: 12,
+                cursor: 'pointer'
+              }}
+            >
+              Reset PW
+            </button>
           </div>
         ))}
         {users.length === 0 && <div style={{ padding: 20, color: 'var(--text-muted)' }}>No users.</div>}
