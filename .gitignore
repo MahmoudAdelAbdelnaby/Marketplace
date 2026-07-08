@@ -6,6 +6,8 @@
 !/infra/
 !/.github/
 !/.gitignore
+!/docker-compose.yml
+!/deploy.sh
 
 # Ignore node_modules, logs, build outputs, environment files, and local DBs inside the app
 **/node_modules/
