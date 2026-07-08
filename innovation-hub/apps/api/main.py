@@ -199,6 +199,11 @@ class AIKeyIn(BaseModel):
     ai_model: Optional[str] = "llama3.2"
 
 
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class AIGenerateIn(BaseModel):
     prompt: str
     model: Optional[str] = None
@@ -382,6 +387,28 @@ def set_aikey(body: AIKeyIn, u: User = Depends(current_user), s: Session = Depen
     u.ai_key = body.ai_key
     if body.ai_model:
         u.ai_model = body.ai_model
+    s.add(u); s.commit()
+    return public_user(u)
+
+
+@app.put("/me/password")
+def change_password(body: ChangePasswordIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    if not pwd.verify(body.current_password, u.password_hash):
+        raise HTTPException(400, "Current password is incorrect.")
+        
+    password = body.new_password
+    if len(password) < 8:
+        raise HTTPException(400, "New password must be at least 8 characters long.")
+    if not re.search(r"[A-Z]", password):
+        raise HTTPException(400, "New password must contain at least one uppercase letter.")
+    if not re.search(r"[a-z]", password):
+        raise HTTPException(400, "New password must contain at least one lowercase letter.")
+    if not re.search(r"\d", password):
+        raise HTTPException(400, "New password must contain at least one digit.")
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        raise HTTPException(400, "New password must contain at least one special character.")
+        
+    u.password_hash = pwd.hash(password)
     s.add(u); s.commit()
     return public_user(u)
 

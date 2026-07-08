@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, Key, Cpu, Cloud } from 'lucide-react';
+import { Settings as SettingsIcon, Key, Cpu, Cloud, Lock } from 'lucide-react';
 import { api } from '../../api';
 import { useAuthStore } from '../../store/useAuthStore';
 
@@ -21,6 +21,35 @@ export default function SettingsView() {
   const [result, setResult] = useState('');
   const [testing, setTesting] = useState(false);
   const [err, setErr] = useState('');
+
+  // Password reset states
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordErr, setPasswordErr] = useState('');
+  const [passwordSaved, setPasswordSaved] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+
+  const updatePassword = async () => {
+    setPasswordErr(''); setPasswordSaved(false);
+    if (!currentPassword) { setPasswordErr('Please enter your current password.'); return; }
+    if (!newPassword) { setPasswordErr('Please enter a new password.'); return; }
+    if (newPassword !== confirmPassword) { setPasswordErr('New passwords do not match.'); return; }
+    
+    setPasswordBusy(true);
+    try {
+      await api('/me/password', { method: 'PUT', body: { current_password: currentPassword, new_password: newPassword } });
+      setPasswordSaved(true);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => setPasswordSaved(false), 2500);
+    } catch (e) {
+      setPasswordErr(e.message);
+    } finally {
+      setPasswordBusy(false);
+    }
+  };
 
   useEffect(() => { 
     api('/ai/status')
@@ -137,6 +166,60 @@ export default function SettingsView() {
         </button>
         {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 12 }}>{err}</div>}
         {result && <pre style={{ marginTop: 14, whiteSpace: 'pre-wrap', background: 'var(--secondary)', padding: 14, borderRadius: 10, fontSize: 13.5, fontFamily: 'inherit', lineHeight: 1.6 }}>{result}</pre>}
+      </div>
+
+      <div style={card}>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}><Lock size={18} /> Change Password</h3>
+        <p style={{ marginBottom: 16, color: 'var(--text-secondary)', fontSize: 14 }}>
+          Update your account password. Passwords must be at least 8 characters long and contain uppercase, lowercase, numbers, and special characters.
+        </p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Current Password</label>
+            <input 
+              type="password" 
+              value={currentPassword} 
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Enter current password" 
+              style={{ marginTop: 6 }} 
+            />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>New Password</label>
+              <input 
+                type="password" 
+                value={newPassword} 
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Enter new password" 
+                style={{ marginTop: 6 }} 
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Confirm New Password</label>
+              <input 
+                type="password" 
+                value={confirmPassword} 
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Confirm new password" 
+                style={{ marginTop: 6 }} 
+              />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button 
+            onClick={updatePassword} 
+            disabled={passwordBusy}
+            style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, cursor: 'pointer', opacity: passwordBusy ? 0.6 : 1 }}
+          >
+            {passwordBusy ? 'Updating…' : 'Update Password'}
+          </button>
+          {passwordSaved && <span style={{ color: 'var(--success)', fontSize: 13.5, fontWeight: 600 }}>✓ Password Updated</span>}
+        </div>
+        {passwordErr && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 12 }}>{passwordErr}</div>}
       </div>
     </div>
   );
