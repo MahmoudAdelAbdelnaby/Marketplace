@@ -4,7 +4,7 @@ import { api } from '../../api';
 import { useAuthStore } from '../../store/useAuthStore';
 
 const ROLES = ['viewer', 'product_owner', 'committee', 'approver', 'admin'];
-const ROLE_LABEL = { viewer: 'Viewer', product_owner: 'Product Owner', committee: 'Committee (Reviewer)', approver: 'Approver', admin: 'Admin' };
+const ROLE_LABEL = { waiting: 'Waiting', viewer: 'Viewer', product_owner: 'Product Owner', committee: 'Committee (Reviewer)', approver: 'Approver', admin: 'Admin' };
 
 export default function AdminCenter() {
   const me = useAuthStore((s) => s.user);
@@ -14,13 +14,22 @@ export default function AdminCenter() {
   const [requiredReviewers, setRequiredReviewers] = useState(1);
   const [tools, setTools] = useState([]);
   const [ideas, setIdeas] = useState([]);
+  
+  const [waitlist, setWaitlist] = useState([]);
+  const [invitations, setInvitations] = useState([]);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('viewer');
 
   const load = () => api('/admin/users').then(setUsers).catch((e) => setErr(e.message));
+  const loadWaitlist = () => api('/admin/users/waitlist').then(setWaitlist).catch(() => {});
+  const loadInvitations = () => api('/admin/invites').then(setInvitations).catch(() => {});
   const loadTools = () => api('/tools').then(setTools).catch(() => {});
   const loadIdeas = () => api('/ideas').then(setIdeas).catch(() => {});
   
   useEffect(() => { 
     load(); 
+    loadWaitlist();
+    loadInvitations();
     loadTools();
     loadIdeas();
     if (me?.role === 'admin') {
@@ -36,6 +45,70 @@ export default function AdminCenter() {
   const setRole = async (id, role) => {
     try { await api(`/admin/users/${id}/role`, { method: 'PUT', body: { role } }); load(); }
     catch (e) { setErr(e.message); }
+  };
+
+  const approveUser = async (userId, selectedRole) => {
+    try {
+      await api(`/admin/users/${userId}/approve`, { method: 'POST', body: { role: selectedRole } });
+      load();
+      loadWaitlist();
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
+
+  const declineUser = async (userId) => {
+    if (!window.confirm('Are you sure you want to decline and delete this waitlisted user?')) return;
+    try {
+      await api(`/admin/users/${userId}/decline`, { method: 'DELETE' });
+      load();
+      loadWaitlist();
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
+
+  const inviteUser = async (e) => {
+    e.preventDefault();
+    setErr('');
+    try {
+      const res = await api('/admin/invites', { method: 'POST', body: { email: inviteEmail, role: inviteRole } });
+      const origin = window.location.origin;
+      const inviteUrl = `${origin}/register?token=${res.token}`;
+      const subject = encodeURIComponent("You're invited to join the Concentrix Innovation Hub");
+      const body = encodeURIComponent(
+        `Hi,\n\nYou have been invited to join the Concentrix Innovation Hub as a ${ROLE_LABEL[inviteRole] || inviteRole}.\n\nPlease use the link below to complete your registration:\n\n${inviteUrl}\n\nThis invitation link is valid for 7 days.`
+      );
+      const mailtoUrl = `mailto:${res.email}?subject=${subject}&body=${body}`;
+      window.location.href = mailtoUrl;
+      setInviteEmail('');
+      setInviteRole('viewer');
+      loadInvitations();
+      alert(`Invitation link generated successfully! A draft has been pre-composed in your mail client.\n\nIn case Outlook did not launch automatically, here is the link you can copy and send:\n${inviteUrl}`);
+    } catch (e2) {
+      setErr(e2.message);
+    }
+  };
+
+  const revokeInvite = async (inviteId) => {
+    if (!window.confirm('Are you sure you want to revoke this invitation? The registration link will become invalid.')) return;
+    try {
+      await api(`/admin/invites/${inviteId}`, { method: 'DELETE' });
+      loadInvitations();
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
+
+  const redraftInvite = (email, token, role) => {
+    const origin = window.location.origin;
+    const inviteUrl = `${origin}/register?token=${token}`;
+    const subject = encodeURIComponent("You're invited to join the Concentrix Innovation Hub");
+    const body = encodeURIComponent(
+      `Hi,\n\nYou have been invited to join the Concentrix Innovation Hub as a ${ROLE_LABEL[role] || role}.\n\nPlease use the link below to complete your registration:\n\n${inviteUrl}\n\nThis invitation link is valid for 7 days.`
+    );
+    const mailtoUrl = `mailto:${email}?subject=${subject}&body=${body}`;
+    window.location.href = mailtoUrl;
   };
 
   const updateRouting = async (val) => {
@@ -74,6 +147,139 @@ export default function AdminCenter() {
       <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10 }}><ShieldCheck /> Admin center</h1>
       <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>Grant roles. Everyone registers as a Viewer; you assign Committee / Product Owner / Admin here.</p>
       {err && <div style={{ color: 'var(--danger)', marginBottom: 12 }}>{err}</div>}
+
+      {/* SECTION: INVITATIONS & WAITLIST */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 24, marginBottom: 24 }}>
+        {/* Left Column: Invite & Sent Invites */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          {/* Sub-Section 1: Invite Colleague */}
+          <div style={{ padding: 20, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, display: 'flex', flexDirection: 'column' }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>Invite Colleague</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: '0 0 12px' }}>Generate a unique token and draft a corporate email invite.</p>
+            <form onSubmit={inviteUser} style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Email Address</label>
+                <input 
+                  type="email" 
+                  required 
+                  placeholder="colleague@concentrix.com" 
+                  value={inviteEmail} 
+                  onChange={(e) => setInviteEmail(e.target.value)} 
+                  style={{ width: '100%', padding: '8px 12px', fontSize: 13, marginTop: 4, borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Assigned Role</label>
+                <select 
+                  value={inviteRole} 
+                  onChange={(e) => setInviteRole(e.target.value)} 
+                  style={{ width: '100%', padding: '8px 12px', fontSize: 13, marginTop: 4, borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', cursor: 'pointer' }}
+                >
+                  {Object.entries(ROLE_LABEL).map(([roleVal, label]) => (
+                    roleVal !== 'waiting' && <option key={roleVal} value={roleVal}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <button 
+                type="submit" 
+                style={{ marginTop: 'auto', padding: '10px 14px', borderRadius: 8, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: 12.5, cursor: 'pointer', textAlign: 'center' }}
+              >
+                Draft Outlook Invite ✉
+              </button>
+            </form>
+          </div>
+
+          {/* Sub-Section 1B: Sent Invitations List */}
+          <div style={{ padding: 20, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, display: 'flex', flexDirection: 'column', maxHeight: 310, overflowY: 'auto' }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>Sent Invitations</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: '0 0 12px' }}>Track who registered (Accepted) or has pending invites.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, overflowY: 'auto', paddingRight: 6 }}>
+              {invitations.map((inv) => (
+                <div key={inv.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
+                  <div style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inv.email}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      Role: {ROLE_LABEL[inv.role] || inv.role} • {inv.status === 'accepted' ? (
+                        <span style={{ color: 'var(--success)', fontWeight: 700 }}>Accepted</span>
+                      ) : (
+                        <span style={{ color: 'var(--primary)', fontWeight: 700 }}>Pending</span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    {inv.status === 'pending' && (
+                      <button 
+                        onClick={() => redraftInvite(inv.email, inv.token, inv.role)} 
+                        title="Re-compose invite email"
+                        style={{ padding: '5px 10px', borderRadius: 6, border: 'none', background: 'rgba(37,99,235,0.1)', color: 'var(--primary)', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}
+                      >
+                        Resend
+                      </button>
+                    )}
+                    <button 
+                      onClick={() => revokeInvite(inv.id)} 
+                      title="Revoke / Delete Invitation"
+                      style={{ padding: '5px 10px', borderRadius: 6, border: 'none', background: '#fee2e2', color: '#ef4444', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}
+                    >
+                      {inv.status === 'accepted' ? 'Remove' : 'Revoke'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {invitations.length === 0 && (
+                <div style={{ margin: 'auto', color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', padding: 10 }}>
+                  No invitations sent yet.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Waitlist Queue */}
+        <div style={{ padding: 20, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, display: 'flex', flexDirection: 'column', maxHeight: 588, overflowY: 'auto' }}>
+          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>Waitlist Queue</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: '0 0 12px' }}>Review and approve registrations submitted without invitation codes.</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, overflowY: 'auto', paddingRight: 6 }}>
+            {waitlist.map((u) => (
+              <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
+                <div style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  <select 
+                    defaultValue="viewer" 
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        approveUser(u.id, e.target.value);
+                      }
+                    }} 
+                    style={{ padding: '4px 8px', fontSize: 11.5, borderRadius: 6, cursor: 'pointer' }}
+                  >
+                    <option value="" disabled>Approve as...</option>
+                    {Object.entries(ROLE_LABEL).map(([roleVal, label]) => (
+                      roleVal !== 'waiting' && <option key={roleVal} value={roleVal}>{label}</option>
+                    ))}
+                  </select>
+                  <button 
+                    onClick={() => declineUser(u.id)} 
+                    style={{ padding: '5px 10px', borderRadius: 6, border: 'none', background: '#fee2e2', color: '#ef4444', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}
+                  >
+                    Decline
+                  </button>
+                </div>
+              </div>
+            ))}
+            {waitlist.length === 0 && (
+              <div style={{ margin: 'auto', color: 'var(--text-muted)', fontSize: 12.5, textAlign: 'center', padding: 20 }}>
+                No pending users on waitlist.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Active Users list</h3>
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, overflow: 'hidden' }}>
         {users.map((u, i) => (
           <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>

@@ -11,6 +11,7 @@ Role logic:
 Run:  uvicorn main:app --reload --port 8000
 """
 import os
+import secrets
 import re
 import time
 import base64
@@ -45,7 +46,7 @@ else:
 pwd = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2")
-ROLES = ("viewer", "product_owner", "committee", "approver", "admin")
+ROLES = ("waiting", "viewer", "product_owner", "committee", "approver", "admin")
 
 
 # ----------------------------------------------------------------- models
@@ -149,6 +150,16 @@ class VocIssue(SQLModel, table=True):
 
 
 
+class Invitation(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str = Field(unique=True, index=True)
+    token: str = Field(unique=True, index=True)
+    role: str = "viewer"
+    created_at: float = Field(default_factory=lambda: time.time())
+    expires_at: float
+    status: str = "pending"  # pending | accepted
+
+
 class Setting(SQLModel, table=True):
     key: str = Field(primary_key=True)
     value: str = ""
@@ -172,6 +183,7 @@ class RegisterIn(BaseModel):
     email: str
     password: str
     name: str = ""
+    token: Optional[str] = None
 
 
 class LoginIn(BaseModel):
@@ -196,6 +208,11 @@ class ReviewIn(BaseModel):
 
 
 class RoleIn(BaseModel):
+    role: str
+
+
+class InviteIn(BaseModel):
+    email: str
     role: str
 
 
@@ -277,6 +294,18 @@ def get_upload(filename: str):
     return FileResponse(file_path)
 
 
+@app.get("/auth/invites/validate")
+def validate_invite(token: str, s: Session = Depends(get_session)):
+    inv = s.exec(select(Invitation).where(Invitation.token == token)).first()
+    if not inv:
+        raise HTTPException(400, "Invitation code is invalid.")
+    if inv.status != "pending":
+        raise HTTPException(400, "Invitation code has already been used.")
+    if inv.expires_at < time.time():
+        raise HTTPException(400, "Invitation code has expired.")
+    return {"email": inv.email, "role": inv.role}
+
+
 # ----------------------------------------------------------------- auth
 @app.post("/auth/register")
 def register(body: RegisterIn, s: Session = Depends(get_session)):
@@ -298,9 +327,34 @@ def register(body: RegisterIn, s: Session = Depends(get_session)):
 
     if s.exec(select(User).where(User.email == email)).first():
         raise HTTPException(400, "Email already registered")
-    u = User(email=email, name=body.name or email.split("@")[0], role="viewer",
+
+    invite_role = None
+    if body.token:
+        inv = s.exec(select(Invitation).where(Invitation.token == body.token)).first()
+        if not inv:
+            raise HTTPException(400, "Invitation token is invalid.")
+        if inv.status != "pending":
+            raise HTTPException(400, "Invitation token has already been used.")
+        if inv.expires_at < time.time():
+            raise HTTPException(400, "Invitation token has expired.")
+        if inv.email != email:
+            raise HTTPException(400, "Invitation token email mismatch.")
+        invite_role = inv.role
+        inv.status = "accepted"
+        s.add(inv)
+
+    role = invite_role if invite_role else "waiting"
+    
+    u = User(email=email, name=body.name or email.split("@")[0], role=role,
              password_hash=pwd.hash(body.password))
     s.add(u); s.commit(); s.refresh(u)
+
+    if role == "waiting":
+        return {
+            "waiting": True,
+            "message": "Thank you for your interest in our initiative! You have been added to the waitlist and we will update you once approved."
+        }
+
     return {"token": make_token(u), "user": public_user(u)}
 
 
@@ -309,6 +363,8 @@ def login(body: LoginIn, s: Session = Depends(get_session)):
     u = s.exec(select(User).where(User.email == body.email.lower().strip())).first()
     if not u or not pwd.verify(body.password, u.password_hash):
         raise HTTPException(401, "Invalid email or password")
+    if u.role == "waiting":
+        raise HTTPException(403, "Your account is on the waitlist pending administrator approval.")
     return {"token": make_token(u), "user": public_user(u)}
 
 
@@ -764,10 +820,46 @@ def delete_idea(idea_id: int, u: User = Depends(current_user), s: Session = Depe
     return {"ok": True}
 
 
-# ----------------------------------------------------------------- admin
 @app.get("/admin/users")
 def admin_users(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
-    return [public_user(x) for x in s.exec(select(User).order_by(User.created_at)).all()]
+    return [public_user(x) for x in s.exec(select(User).where(User.role != "waiting").order_by(User.created_at)).all()]
+
+
+@app.post("/admin/invites")
+def create_invite(body: InviteIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    email = body.email.lower().strip()
+    if not email.endswith("@concentrix.com"):
+        raise HTTPException(400, "Invitation email must be a @concentrix.com address.")
+    if body.role not in ROLES:
+        raise HTTPException(400, f"Role must be one of {ROLES}")
+        
+    existing_user = s.exec(select(User).where(User.email == email)).first()
+    if existing_user:
+        raise HTTPException(400, "A user with this email is already registered.")
+        
+    old_inv = s.exec(select(Invitation).where(Invitation.email == email)).first()
+    if old_inv:
+        s.delete(old_inv)
+        
+    token = secrets.token_urlsafe(32)
+    expires_at = time.time() + (7 * 24 * 3600)
+    
+    inv = Invitation(email=email, token=token, role=body.role, expires_at=expires_at)
+    s.add(inv); s.commit(); s.refresh(inv)
+    return {"token": inv.token, "email": inv.email, "role": inv.role}
+
+
+@app.get("/admin/invites")
+def list_invites(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    return s.exec(select(Invitation).order_by(Invitation.created_at.desc())).all()
+
+
+@app.delete("/admin/invites/{invite_id}")
+def delete_invite(invite_id: int, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    inv = s.get(Invitation, invite_id)
+    if not inv: raise HTTPException(404, "Invitation not found")
+    s.delete(inv); s.commit()
+    return {"ok": True}
 
 
 @app.put("/admin/users/{user_id}/role")
@@ -779,6 +871,34 @@ def admin_set_role(user_id: int, body: RoleIn, u: User = Depends(require("admin"
     target.role = body.role
     s.add(target); s.commit()
     return public_user(target)
+
+
+@app.get("/admin/users/waitlist")
+def admin_waitlist(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    return [public_user(x) for x in s.exec(select(User).where(User.role == "waiting").order_by(User.created_at)).all()]
+
+
+@app.post("/admin/users/{user_id}/approve")
+def admin_approve_user(user_id: int, body: RoleIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    if body.role not in ROLES or body.role == "waiting":
+        raise HTTPException(400, "Must approve to a valid active role.")
+    target = s.get(User, user_id)
+    if not target: raise HTTPException(404, "User not found")
+    if target.role != "waiting":
+        raise HTTPException(400, "User is already approved.")
+    target.role = body.role
+    s.add(target); s.commit()
+    return public_user(target)
+
+
+@app.delete("/admin/users/{user_id}/decline")
+def admin_decline_user(user_id: int, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    target = s.get(User, user_id)
+    if not target: raise HTTPException(404, "User not found")
+    if target.role != "waiting":
+        raise HTTPException(400, "Cannot decline an already approved user.")
+    s.delete(target); s.commit()
+    return {"ok": True}
 
 
 @app.get("/admin/backup")

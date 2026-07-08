@@ -19,6 +19,9 @@ export const useAuthStore = create((set) => ({
 
   register: async (data) => {
     const r = await api('/auth/register', { method: 'POST', body: data, auth: false });
+    if (r.waiting) {
+      return { waiting: true, message: r.message };
+    }
     setToken(r.token);
     set({ user: r.user, error: '' });
     return r.user;

@@ -1,15 +1,43 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../../store/useAuthStore';
+import { api } from '../../api';
 import Logo from '../hub/Logo';
 
 export default function AuthView() {
   const login = useAuthStore((s) => s.login);
   const register = useAuthStore((s) => s.register);
   const [mode, setMode] = useState('login');
-  const [form, setForm] = useState({ email: '', password: '', name: '', role: 'product_owner' });
+  const [form, setForm] = useState({ email: '', password: '', name: '', role: 'viewer' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
+  
+  const [inviteToken, setInviteToken] = useState('');
+  const [isEmailLocked, setIsEmailLocked] = useState(false);
+  const [isWaitlisted, setIsWaitlisted] = useState(false);
+  const [waitlistMsg, setWaitlistMsg] = useState('');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tok = params.get('token');
+    if (tok) {
+      setInviteToken(tok);
+      setMode('register');
+      setError('');
+      setBusy(true);
+      api(`/auth/invites/validate?token=${tok}`)
+        .then((res) => {
+          setForm((prev) => ({ ...prev, email: res.email }));
+          setIsEmailLocked(true);
+        })
+        .catch((e) => {
+          setError('This invitation link is invalid, expired, or has already been used.');
+        })
+        .finally(() => {
+          setBusy(false);
+        });
+    }
+  }, []);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -39,8 +67,18 @@ export default function AuthView() {
 
     setBusy(true);
     try {
-      if (mode === 'login') await login({ email: form.email, password: form.password });
-      else await register(form);
+      if (mode === 'login') {
+        await login({ email: form.email, password: form.password });
+      } else {
+        const payload = { ...form };
+        if (inviteToken) payload.token = inviteToken;
+        
+        const res = await register(payload);
+        if (res && res.waiting) {
+          setIsWaitlisted(true);
+          setWaitlistMsg(res.message);
+        }
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -49,6 +87,31 @@ export default function AuthView() {
   };
 
   const field = { width: '100%', padding: '11px 13px', fontSize: 14, marginTop: 6, borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)' };
+
+  if (isWaitlisted) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: 'var(--bg-main)' }}>
+        <div style={{ width: 'min(460px, 100%)', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 18, padding: 32, textAlign: 'center', boxShadow: 'var(--shadow-lg)' }}>
+          <span style={{ fontSize: 48, display: 'block', marginBottom: 16 }}>⏳</span>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, margin: '0 0 12px', color: 'var(--text-primary)' }}>Added to Waitlist</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14.5, lineHeight: 1.6, margin: '0 0 24px' }}>
+            {waitlistMsg || "Thank you for your interest! Your account has been added to the waitlist pending administrator approval."}
+          </p>
+          <button 
+            onClick={() => {
+              setIsWaitlisted(false);
+              setMode('login');
+              setForm({ email: '', password: '', name: '', role: 'viewer' });
+              window.history.replaceState({}, document.title, window.location.pathname);
+            }} 
+            style={{ padding: '10px 24px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
+          >
+            Return to Sign In
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: 'var(--bg-main)' }}>
@@ -78,7 +141,7 @@ export default function AuthView() {
             )}
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 13, fontWeight: 600 }}>{mode === 'login' ? 'Email or username' : 'Email'}</label>
-              <input style={field} type={mode === 'login' ? 'text' : 'email'} required value={form.email} onChange={set('email')} placeholder={mode === 'login' ? 'you@concentrix.com or admin' : 'you@concentrix.com'} />
+              <input style={field} type={mode === 'login' ? 'text' : 'email'} required value={form.email} onChange={set('email')} readOnly={isEmailLocked} placeholder={mode === 'login' ? 'you@concentrix.com or admin' : 'you@concentrix.com'} />
             </div>
             <div style={{ marginBottom: 14, position: 'relative' }}>
               <label style={{ fontSize: 13, fontWeight: 600 }}>Password</label>
