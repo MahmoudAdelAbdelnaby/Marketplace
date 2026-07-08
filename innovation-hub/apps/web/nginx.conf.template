@@ -1,6 +1,7 @@
 server {
     listen ${PORT};
     server_name localhost;
+    client_max_body_size 50M;
 
     location / {
         root /usr/share/nginx/html;
@@ -8,23 +9,7 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    location /api {
-        proxy_pass http://backend:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /auth {
-        proxy_pass http://backend:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /admin {
+    location ~ ^/(api|auth|admin|me|tools|my|review|archive|alerts|ideas|voc|chat|ai) {
         proxy_pass http://backend:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

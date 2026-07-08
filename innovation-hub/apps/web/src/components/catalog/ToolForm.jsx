@@ -33,10 +33,10 @@ export default function ToolForm({ tool, onClose }) {
   const user = useAuthStore((s) => s.user);
   const isCommittee = user && ['committee', 'admin'].includes(user.role);
 
-  const editing = !!tool;
-  const initialDraft = useCatalogStore((s) => s.toolFormDraft);
   const [f, setF] = useState(() => {
-    const src = editing ? tool : initialDraft || {};
+    let local = null;
+    try { local = JSON.parse(localStorage.getItem('tool_submit_draft')); } catch(e) {}
+    const src = editing ? tool : local || {};
     return {
       name: src?.name || '', owner: src?.owner || '', category: src?.category || '',
       status: src?.status || 'pilot', implementation_status: src?.implementation_status || 'not_implemented',
@@ -48,7 +48,7 @@ export default function ToolForm({ tool, onClose }) {
       configs: src?.configs || '',
       demo_url: src?.demo_url || '', video_url: src?.video_url || '', ppt_url: src?.ppt_url || '',
       account: src?.account || '', img_url: src?.img_url || '', achieved_through: src?.achieved_through || '',
-      timelineText: Array.isArray(src?.timeline) ? src.timeline.map((e) => `${e.date} | ${e.comment} | ${e.status}`).join('\n') : '',
+      timelineText: src?.timelineText || (Array.isArray(src?.timeline) ? src.timeline.map((e) => `${e.date} | ${e.comment} | ${e.status}`).join('\n') : ''),
       pricing_model: src?.pricing_model || '',
       price_per_user: src?.price_per_user || '',
       deployment_fees: src?.deployment_fees || '',
@@ -68,22 +68,19 @@ export default function ToolForm({ tool, onClose }) {
   const [showAI, setShowAI] = useState(true);
 
   const setIsToolFormOpen = useCatalogStore((s) => s.setIsToolFormOpen);
-  const setToolFormDraft = useCatalogStore((s) => s.setToolFormDraft);
-  const toolFormDraft = useCatalogStore((s) => s.toolFormDraft);
 
   React.useEffect(() => {
     if (editing) return;
     setIsToolFormOpen(true);
     return () => {
       setIsToolFormOpen(false);
-      setToolFormDraft(null);
     };
-  }, [editing, setIsToolFormOpen, setToolFormDraft]);
+  }, [editing, setIsToolFormOpen]);
 
   React.useEffect(() => {
     if (editing) return;
-    setToolFormDraft(f);
-  }, [editing, f, setToolFormDraft]);
+    localStorage.setItem('tool_submit_draft', JSON.stringify(f));
+  }, [editing, f]);
 
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const addRow = () => {
@@ -122,7 +119,11 @@ export default function ToolForm({ tool, onClose }) {
     if (editing) payload.edit_note = editNote;
     try {
       if (editing) { await updateTool(tool.id, payload); onClose(); }
-      else { await addTool(payload); setDone(true); }
+      else { 
+        await addTool(payload); 
+        localStorage.removeItem('tool_submit_draft');
+        setDone(true); 
+      }
     } catch (e2) { setErr(e2.message); setBusy(false); }
   };
 
@@ -560,7 +561,26 @@ export default function ToolForm({ tool, onClose }) {
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%' }}>
               {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginRight: 'auto' }}>{err}</div>}
-              <button type="submit" disabled={busy} style={{ width: '100%', padding: '12px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, opacity: busy ? 0.6 : 1, cursor: 'pointer' }}>
+              {!editing && (
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    if (window.confirm('Are you sure you want to clear your draft and start over?')) {
+                      localStorage.removeItem('tool_submit_draft');
+                      setF({
+                        name: '', owner: '', category: '', status: 'pilot', implementation_status: 'not_implemented',
+                        impact: '', roi: '', problem: '', capabilities: '', delivers: '', benefits: '', tags: '',
+                        sample: '', configs: '', demo_url: '', video_url: '', ppt_url: '', account: '', img_url: '',
+                        timelineText: '', pricing_model: '', price_per_user: '', deployment_fees: ''
+                      });
+                    }
+                  }}
+                  style={{ padding: '12px 20px', borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  Clear Draft
+                </button>
+              )}
+              <button type="submit" disabled={busy} style={{ flex: 1, padding: '12px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, opacity: busy ? 0.6 : 1, cursor: 'pointer' }}>
                 {busy ? 'Saving…' : editing ? 'Save changes' : 'Submit for review'}
               </button>
             </div>
