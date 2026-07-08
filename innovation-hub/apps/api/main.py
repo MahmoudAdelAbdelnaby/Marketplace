@@ -461,18 +461,114 @@ def save_uploaded_ppt_as_pdf(ppt_data_url: str) -> str:
             except Exception:
                 pass
                 
-        return f"http://localhost:8000/api/uploads/{filename}"
+        return f"/api/uploads/{filename}"
         
     except Exception as e:
         print("Save PPT as PDF error:", e)
         return ppt_data_url
 
 
-@app.post("/tools")
-def create_tool(body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
+def save_uploaded_file(data_url: str, prefix: str) -> str:
+    if not data_url or not data_url.startswith("data:"):
+        return data_url
+        
+    parts = data_url.split(",", 1)
+    if len(parts) != 2:
+        return data_url
+        
+    header, base64_data = parts
+    
+    # Try to determine file extension
+    ext = "bin"
+    if "image/jpeg" in header or "image/jpg" in header:
+        ext = "jpg"
+    elif "image/png" in header:
+        ext = "png"
+    elif "image/gif" in header:
+        ext = "gif"
+    elif "image/svg" in header:
+        ext = "svg"
+    elif "video/mp4" in header:
+        ext = "mp4"
+    elif "video/quicktime" in header:
+        ext = "mov"
+    elif "application/pdf" in header:
+        ext = "pdf"
+    elif "text/html" in header:
+        ext = "html"
+    elif "application/zip" in header:
+        ext = "zip"
+    elif "application/octet-stream" in header:
+        ext = "bin"
+    else:
+        try:
+            mime = header.split(";")[0].split(":")[1]
+            ext = mime.split("/")[1]
+        except Exception:
+            pass
+
+    try:
+        os.makedirs("uploads", exist_ok=True)
+        file_bytes = base64.b64decode(base64_data)
+        if len(file_bytes) > 5 * 1024 * 1024:
+            raise HTTPException(400, "File size exceeds the 5MB limit.")
+        filename = f"{prefix}_{int(time.time() * 1000)}.{ext}"
+        target_path = os.path.join("uploads", filename)
+        
+        with open(target_path, "wb") as f:
+            f.write(file_bytes)
+            
+        return f"/api/uploads/{filename}"
+        
+    except Exception as e:
+        print(f"Save file {prefix} error:", e)
+        return data_url
+
+
+def process_tool_files(body: dict):
+    import json
+    # 1. Handle ppt_url
     ppt_url = body.get("ppt_url", "")
     if ppt_url and ppt_url.startswith("data:"):
         body["ppt_url"] = save_uploaded_ppt_as_pdf(ppt_url)
+        
+    # 2. Handle img_url
+    img_url = body.get("img_url", "")
+    if img_url and img_url.startswith("data:"):
+        body["img_url"] = save_uploaded_file(img_url, "img")
+        
+    # 3. Handle configs
+    configs = body.get("configs", "")
+    if configs and configs.startswith("data:"):
+        body["configs"] = save_uploaded_file(configs, "config")
+        
+    # 4. Handle video_url
+    video_url = body.get("video_url", "")
+    if video_url and video_url.startswith("data:"):
+        body["video_url"] = save_uploaded_file(video_url, "video")
+        
+    # 5. Handle sample
+    sample = body.get("sample", "")
+    if sample:
+        if sample.startswith("data:"):
+            body["sample"] = save_uploaded_file(sample, "sample")
+        elif sample.startswith("["):
+            try:
+                files = json.loads(sample)
+                updated = False
+                for f in files:
+                    if f.get("data", "").startswith("data:"):
+                        f["data"] = save_uploaded_file(f["data"], "sample")
+                        updated = True
+                if updated:
+                    body["sample"] = json.dumps(files)
+            except Exception as e:
+                print("Failed to process multiple samples:", e)
+
+
+@app.post("/tools")
+def create_tool(body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    process_tool_files(body)
         
     t = Tool(owner_id=u.id, owner=body.get("owner") or u.name, review_status="pending")
     for k in ("name", "category", "status", "problem", "delivers", "benefits", "impact", "sample", "configs",
@@ -513,10 +609,7 @@ def get_tool(tool_id: int, u: Optional[User] = Depends(current_user), s: Session
 
 @app.patch("/tools/{tool_id}")
 def update_tool(tool_id: int, body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
-    if "ppt_url" in body:
-        ppt_url = body["ppt_url"]
-        if ppt_url and ppt_url.startswith("data:"):
-            body["ppt_url"] = save_uploaded_ppt_as_pdf(ppt_url)
+    process_tool_files(body)
 
     t = s.get(Tool, tool_id)
     if not t: raise HTTPException(404, "Not found")
