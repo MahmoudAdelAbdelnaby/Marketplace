@@ -1,5 +1,5 @@
 // Tiny fetch wrapper for the local demo backend.
-const BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
 
 export const getToken = () => localStorage.getItem('hub_token') || '';
 export const setToken = (t) => {
