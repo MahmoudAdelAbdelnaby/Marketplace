@@ -1244,14 +1244,11 @@ def seed():
                  account="Google Cloud", implementation_status="third_party", delivers="Compliance report showing flagged clauses and missing SLAs.", benefits="Cuts contract review times by 85%.",
                  badges=[{"title": "SOC2 Verified", "img_url": ""}])
         ]
-        for d in samples:
-            existing = s.exec(select(Tool).where(Tool.name == d["name"])).first()
-            if not existing:
+        if not s.exec(select(Setting).where(Setting.key == "seeded_tools")).first():
+            for d in samples:
                 s.add(Tool(owner_id=0, review_status="approved", **d))
-            else:
-                existing.badges = d.get("badges", [])
-                s.add(existing)
-        s.commit()
+            s.add(Setting(key="seeded_tools", value="true"))
+            s.commit()
 
 
 @app.on_event("startup")
