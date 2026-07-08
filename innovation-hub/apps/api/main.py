@@ -692,6 +692,14 @@ def archive_ideas(u: User = Depends(require("committee", "approver", "admin")), 
 @app.post("/ideas")
 def save_idea(body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
     iid = body.get("id")
+    if isinstance(iid, str) and (iid.startswith("tab-") or iid == "default"):
+        iid = None
+    elif iid:
+        try:
+            iid = int(iid)
+        except ValueError:
+            iid = None
+
     i = s.get(Idea, iid) if iid else None
     if iid and not i:
         raise HTTPException(404, "Not found")
