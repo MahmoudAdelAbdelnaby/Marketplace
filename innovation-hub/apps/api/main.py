@@ -55,6 +55,7 @@ class User(SQLModel, table=True):
     email: str = Field(index=True, unique=True)
     name: str = ""
     role: str = "viewer"
+    department: str = ""
     password_hash: str = ""
     ai_provider: str = "local"
     ai_key: str = ""
@@ -183,6 +184,7 @@ class RegisterIn(BaseModel):
     email: str
     password: str
     name: str = ""
+    department: str = ""
     token: Optional[str] = None
 
 
@@ -269,6 +271,7 @@ def require(*roles):
 
 def public_user(u: User) -> dict:
     return {"id": u.id, "email": u.email, "name": u.name, "role": u.role,
+            "department": getattr(u, "department", ""),
             "ai_provider": u.ai_provider, "has_ai_key": bool(u.ai_key),
             "ai_model": getattr(u, "ai_model", "llama3.2")}
 
@@ -346,13 +349,13 @@ def register(body: RegisterIn, s: Session = Depends(get_session)):
     role = invite_role if invite_role else "waiting"
     
     u = User(email=email, name=body.name or email.split("@")[0], role=role,
-             password_hash=pwd.hash(body.password))
+             department=body.department or "", password_hash=pwd.hash(body.password))
     s.add(u); s.commit(); s.refresh(u)
 
     if role == "waiting":
         return {
             "waiting": True,
-            "message": "Thank you for your interest in our initiative! You have been added to the waitlist and we will update you once approved."
+            "message": "You're officially on the waitlist! We'll keep you updated and let you know the moment the Concentrix Marketplace is ready for you to explore."
         }
 
     return {"token": make_token(u), "user": public_user(u)}
@@ -1071,7 +1074,7 @@ def migrate():
                 conn.exec_driver_sql(f"ALTER TABLE idea ADD COLUMN {col} {ddl}")
         
         ucols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(user)").fetchall()]
-        for col, ddl in [("ai_model", "VARCHAR DEFAULT 'llama3.2'")]:
+        for col, ddl in [("ai_model", "VARCHAR DEFAULT 'llama3.2'"), ("department", "VARCHAR DEFAULT ''")]:
             if ucols and col not in ucols:
                 conn.exec_driver_sql(f"ALTER TABLE user ADD COLUMN {col} {ddl}")
 

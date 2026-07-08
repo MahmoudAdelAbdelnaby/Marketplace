@@ -7,7 +7,7 @@ export default function AuthView() {
   const login = useAuthStore((s) => s.login);
   const register = useAuthStore((s) => s.register);
   const [mode, setMode] = useState('login');
-  const [form, setForm] = useState({ email: '', password: '', name: '', role: 'viewer' });
+  const [form, setForm] = useState({ email: '', password: '', name: '', department: '', role: 'viewer' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
@@ -93,9 +93,9 @@ export default function AuthView() {
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: 'var(--bg-main)' }}>
         <div style={{ width: 'min(460px, 100%)', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 18, padding: 32, textAlign: 'center', boxShadow: 'var(--shadow-lg)' }}>
           <span style={{ fontSize: 48, display: 'block', marginBottom: 16 }}>⏳</span>
-          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, margin: '0 0 12px', color: 'var(--text-primary)' }}>Added to Waitlist</h2>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, margin: '0 0 12px', color: 'var(--text-primary)' }}>Something exciting is coming your way!</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: 14.5, lineHeight: 1.6, margin: '0 0 24px' }}>
-            {waitlistMsg || "Thank you for your interest! Your account has been added to the waitlist pending administrator approval."}
+            You're officially on the waitlist! We'll keep you updated and let you know the moment the Concentrix Marketplace is ready for you to explore.
           </p>
           <button 
             onClick={() => {
@@ -134,10 +134,33 @@ export default function AuthView() {
 
           <form onSubmit={submit}>
             {mode === 'register' && (
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 13, fontWeight: 600 }}>Name</label>
-                <input style={field} value={form.name} onChange={set('name')} placeholder="Your name" />
-              </div>
+              <>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 13, fontWeight: 600 }}>Name</label>
+                  <input style={field} value={form.name} onChange={set('name')} placeholder="Your name" />
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 13, fontWeight: 600 }}>Department</label>
+                  <select 
+                    style={field} 
+                    required 
+                    value={form.department} 
+                    onChange={set('department')}
+                  >
+                    <option value="" disabled>Select your department</option>
+                    <option value="Sales">Sales</option>
+                    <option value="Account Management">Account Management</option>
+                    <option value="Service Delivery">Service Delivery</option>
+                    <option value="Trust & Safety">Trust & Safety</option>
+                    <option value="Digital Marketing">Digital Marketing</option>
+                    <option value="Consulting">Consulting</option>
+                    <option value="Transformation">Transformation</option>
+                    <option value="Innovation">Innovation</option>
+                    <option value="Data & Intelligence">Data & Intelligence</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </>
             )}
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 13, fontWeight: 600 }}>{mode === 'login' ? 'Email or username' : 'Email'}</label>
@@ -204,13 +227,6 @@ export default function AuthView() {
                 </div>
               )}
             </div>
-
-            {mode === 'register' && (
-              <div style={{ marginBottom: 18, fontSize: 12.5, color: 'var(--text-muted)', background: 'var(--secondary)', borderRadius: 10, padding: '10px 12px' }}>
-                You'll start as a <b>Viewer</b> — browse tools, vote on ideas, and submit your own tool for committee review. When a tool of yours is approved you become its <b>Product Owner</b>.
-              </div>
-            )}
-
             {error && <div style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
 
             <button type="submit" disabled={busy}
@@ -219,9 +235,6 @@ export default function AuthView() {
             </button>
           </form>
         </div>
-        <p style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-muted)', marginTop: 16 }}>
-          Local demo — accounts live in a local SQLite database on your machine.
-        </p>
       </div>
     </div>
   );

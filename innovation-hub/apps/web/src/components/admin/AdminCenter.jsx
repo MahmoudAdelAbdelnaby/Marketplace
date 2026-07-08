@@ -77,7 +77,7 @@ export default function AdminCenter() {
       const inviteUrl = `${origin}/register?token=${res.token}`;
       const subject = encodeURIComponent("You're invited to join the Concentrix Innovation Hub");
       const body = encodeURIComponent(
-        `Hi,\n\nYou have been invited to join the Concentrix Innovation Hub as a ${ROLE_LABEL[inviteRole] || inviteRole}.\n\nPlease use the link below to complete your registration:\n\n${inviteUrl}\n\nThis invitation link is valid for 7 days.`
+        `Hi,\n\nYou have been invited to join the Concentrix Innovation Hub.\n\nPlease use the link below to complete your registration:\n\n${inviteUrl}\n\nThis invitation link is valid for 7 days.`
       );
       const mailtoUrl = `mailto:${res.email}?subject=${subject}&body=${body}`;
       window.location.href = mailtoUrl;
@@ -105,10 +105,38 @@ export default function AdminCenter() {
     const inviteUrl = `${origin}/register?token=${token}`;
     const subject = encodeURIComponent("You're invited to join the Concentrix Innovation Hub");
     const body = encodeURIComponent(
-      `Hi,\n\nYou have been invited to join the Concentrix Innovation Hub as a ${ROLE_LABEL[role] || role}.\n\nPlease use the link below to complete your registration:\n\n${inviteUrl}\n\nThis invitation link is valid for 7 days.`
+      `Hi,\n\nYou have been invited to join the Concentrix Innovation Hub.\n\nPlease use the link below to complete your registration:\n\n${inviteUrl}\n\nThis invitation link is valid for 7 days.`
     );
     const mailtoUrl = `mailto:${email}?subject=${subject}&body=${body}`;
     window.location.href = mailtoUrl;
+  };
+
+  const exportWaitlistToCSV = () => {
+    if (waitlist.length === 0) {
+      alert('The waitlist queue is empty.');
+      return;
+    }
+    const headers = ['Name', 'Email', 'Department', 'Registered Date'];
+    const rows = waitlist.map(u => [
+      u.name,
+      u.email,
+      u.department || 'N/A',
+      new Date(u.created_at * 1000).toLocaleString()
+    ]);
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(r => r.map(val => `"${val.replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `waitlist-export-${new Date().toISOString().slice(0, 10)}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const updateRouting = async (val) => {
@@ -237,14 +265,27 @@ export default function AdminCenter() {
 
         {/* Right Column: Waitlist Queue */}
         <div style={{ padding: 20, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, display: 'flex', flexDirection: 'column', maxHeight: 588, overflowY: 'auto' }}>
-          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>Waitlist Queue</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, margin: 0 }}>Waitlist Queue</h3>
+            <button 
+              onClick={exportWaitlistToCSV}
+              style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}
+            >
+              📥 Export CSV
+            </button>
+          </div>
           <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: '0 0 12px' }}>Review and approve registrations submitted without invitation codes.</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, overflowY: 'auto', paddingRight: 6 }}>
             {waitlist.map((u) => (
               <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
                 <div style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
                   <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={u.email}>{u.email}</div>
+                  {u.department && (
+                    <div style={{ fontSize: 11.5, color: 'var(--primary)', fontWeight: 600, marginTop: 2 }}>
+                      {u.department}
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                   <select 
