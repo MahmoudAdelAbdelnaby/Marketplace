@@ -513,8 +513,14 @@ export default function CatalogView() {
   }, [secQueries]);
   const list = filtered();
   
-  // High impact or pilot tools are featured, sorted by display rank ascending
-  const featuredTools = tools.filter(t => t.featured).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const featuredTools = tools.filter(t => t.featured);
+  const sortedFeatured = [...featuredTools].sort((a, b) => {
+    if (carouselSort === 'roi_desc') return (b.roi || 0) - (a.roi || 0);
+    if (carouselSort === 'votes_desc') return (b.votes || 0) - (a.votes || 0);
+    if (carouselSort === 'name_asc') return (a.name || '').localeCompare(b.name || '');
+    if (carouselSort === 'newest') return (b.id || 0) - (a.id || 0);
+    return (a.sort_order || 0) - (b.sort_order || 0);
+  });
 
   return (
     <div style={{ position: 'relative', zIndex: 1 }}>
