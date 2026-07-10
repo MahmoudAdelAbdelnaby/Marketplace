@@ -9,6 +9,7 @@ const ROLE_LABEL = { waiting: 'Waiting', viewer: 'Viewer', product_owner: 'Produ
 export default function AdminCenter() {
   const me = useAuthStore((s) => s.user);
   const [users, setUsers] = useState([]);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
   const [err, setErr] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [routing, setRouting] = useState('committee');
@@ -461,16 +462,67 @@ export default function AdminCenter() {
           </div>
 
           {/* Active Users Table */}
-          <div style={{ padding: 20, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
-            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Users size={16} /> Active Users Directory
-            </h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: '0 0 14px' }}>Manage roles, reset passwords, set AI credit limits per user.</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {users.map((u) => {
-                const totalCredits = u.ai_credits ?? 5;
-                const usedCredits = u.ai_usage ?? 0;
-                const remaining = Math.max(0, totalCredits - usedCredits);
+          <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Users size={16} /> Active Users Directory
+                </h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: 0 }}>Manage roles, reset passwords, set AI credit limits per user.</p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '6px 12px', width: 220 }}>
+                <Search size={14} color="var(--text-muted)" style={{ marginRight: 8 }} />
+                <input 
+                  type="text" 
+                  placeholder="Search users..." 
+                  value={userSearchQuery}
+                  onChange={(e) => setUserSearchQuery(e.target.value)}
+                  style={{ border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: '100%' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              {(() => {
+                const filteredUsers = users.filter(u => 
+                  u.name.toLowerCase().includes(userSearchQuery.toLowerCase()) || 
+                  u.email.toLowerCase().includes(userSearchQuery.toLowerCase())
+                );
+                
+                const usersByRole = {
+                  admin: [],
+                  committee: [],
+                  approver: [],
+                  product_owner: [],
+                  viewer: []
+                };
+                
+                filteredUsers.forEach(u => {
+                  if (usersByRole[u.role]) {
+                    usersByRole[u.role].push(u);
+                  } else {
+                    usersByRole.viewer.push(u);
+                  }
+                });
+
+                if (filteredUsers.length === 0) {
+                  return <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No users found matching "{userSearchQuery}".</div>;
+                }
+
+                return ['admin', 'committee', 'approver', 'product_owner', 'viewer'].map(role => {
+                  const roleUsers = usersByRole[role];
+                  if (roleUsers.length === 0) return null;
+                  
+                  return (
+                    <div key={role}>
+                      <h4 style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', marginBottom: 12, paddingBottom: 6, borderBottom: '1px solid var(--border-color)' }}>
+                        {ROLE_LABEL[role]} ({roleUsers.length})
+                      </h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {roleUsers.map((u) => {
+                          const totalCredits = u.ai_credits ?? 5;
+                          const usedCredits = u.ai_usage ?? 0;
+                          const remaining = Math.max(0, totalCredits - usedCredits);
                 const pct = totalCredits > 0 ? (remaining / totalCredits) * 100 : 0;
                 const barColor = pct > 50 ? '#22c55e' : pct > 20 ? '#eab308' : '#ef4444';
 
@@ -572,6 +624,11 @@ export default function AdminCenter() {
                   </div>
                 );
               })}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
 

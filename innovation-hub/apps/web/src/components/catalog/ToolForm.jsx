@@ -55,6 +55,7 @@ export default function ToolForm({ tool, onClose }) {
       deployment_fees: src?.deployment_fees || '',
       time_to_deploy: src?.time_to_deploy || '',
       success_stories: src?.success_stories || [],
+      co_owners: Array.isArray(src?.co_owners) ? src.co_owners.map(o => o.email || o.name).join(', ') : '',
       draft_id: src?.draft_id || '',
     };
   });
@@ -147,6 +148,7 @@ export default function ToolForm({ tool, onClose }) {
       timeline: parseQuickAdd(f.timelineText),
       time_to_deploy: f.time_to_deploy,
       success_stories: f.success_stories,
+      co_owners: f.co_owners ? f.co_owners.split(',').map((x) => ({ email: x.trim() })).filter(x => x.email) : [],
     };
     if (demoHtml !== null) payload.demo_html = demoHtml;
     if (editing) payload.edit_note = editNote;
@@ -264,8 +266,12 @@ export default function ToolForm({ tool, onClose }) {
               {!enlargedSection && <button type="button" onClick={() => setEnlargedSection(1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', flexShrink: 0 }}><Maximize2 size={16} /></button>}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div><label style={lbl}>Name</label><input required value={f.name} onChange={set('name')} /></div>
-              <div><label style={lbl}>Owner</label><input value={f.owner} onChange={set('owner')} placeholder="Team or person" /></div>
+              <div><label style={lbl}>Tool Name</label><input autoFocus value={f.name} onChange={set('name')} /></div>
+              <div><label style={lbl}>Owner / Submitter</label><input value={f.owner} onChange={set('owner')} /></div>
+            </div>
+            <div>
+              <label style={lbl}>Co-owners (comma separated emails)</label>
+              <input value={f.co_owners} onChange={set('co_owners')} placeholder="e.g. colleague@concentrix.com" />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div><label style={lbl}>Section</label><select value={f.implementation_status} onChange={set('implementation_status')}>{IMPL.map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}</select></div>

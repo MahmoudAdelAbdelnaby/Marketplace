@@ -105,6 +105,7 @@ class Tool(SQLModel, table=True):
     edit_history: List[dict] = Field(default=[], sa_column=Column(JSON))
     time_to_deploy: str = ""
     success_stories: List[dict] = Field(default=[], sa_column=Column(JSON))
+    co_owners: List[dict] = Field(default=[], sa_column=Column(JSON))
     created_at: float = Field(default_factory=lambda: time.time())
 
 
@@ -760,6 +761,7 @@ def update_tool(tool_id: int, body: dict, u: User = Depends(current_user), s: Se
     if "roi" in body: t.roi = float(body["roi"] or 0)
     if "demo_html" in body: t.demo_html = body["demo_html"] or ""
     if "badges" in body: t.badges = body["badges"] or []
+    if "co_owners" in body: t.co_owners = body["co_owners"] or []
     t.has_demo = bool(t.demo_html or t.demo_url)
     
     if changed or body.get("edit_note"):

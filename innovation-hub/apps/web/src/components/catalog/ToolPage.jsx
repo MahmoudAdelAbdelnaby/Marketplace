@@ -953,7 +953,8 @@ export default function ToolPage() {
     );
   }
 
-  const canEdit = user && (user.role === 'admin' || tool.owner_id === user.id);
+  const isCoOwner = user && Array.isArray(tool.co_owners) && tool.co_owners.some(co => co.email === user.email);
+  const canEdit = user && (user.role === 'admin' || tool.owner_id === user.id || isCoOwner);
   const voted = (tool.voters || []).includes(user?.id);
   const s = STATUS_STYLE[tool.status] || STATUS_STYLE.active;
   const saveEntries = async (next) => { setEntries(next); try { await updateTool(tool.id, { timeline: next }); } catch { /* keep local */ } };
