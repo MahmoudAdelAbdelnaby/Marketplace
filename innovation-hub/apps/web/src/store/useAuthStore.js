@@ -36,4 +36,10 @@ export const useAuthStore = create((set) => ({
 
   logout: () => { setToken(''); set({ user: null }); },
   setUser: (user) => set({ user }),
+  reloadUser: async () => {
+    try {
+      const user = await api('/auth/me');
+      set({ user });
+    } catch (e) {}
+  },
 }));

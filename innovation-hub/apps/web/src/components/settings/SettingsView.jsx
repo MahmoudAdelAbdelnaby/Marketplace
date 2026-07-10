@@ -87,76 +87,78 @@ export default function SettingsView() {
         <SettingsIcon /> Settings
       </h1>
 
-      <div style={card}>
-        <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}><Key size={18} /> AI provider</h3>
-        <p style={{ marginBottom: 16, color: 'var(--text-secondary)', fontSize: 14 }}>
-          Pick where AI features run. Use the local model for testing — or add your own cloud key.
-        </p>
+      {user?.role === 'admin' && (
+        <div style={card}>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}><Key size={18} /> AI provider</h3>
+          <p style={{ marginBottom: 16, color: 'var(--text-secondary)', fontSize: 14 }}>
+            Pick where AI features run. Use the local model for testing — or add your own cloud key.
+          </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 16 }}>
-          {PROVIDERS.map((p) => {
-            const Icon = p.icon; const on = provider === p.id;
-            return (
-              <button key={p.id} onClick={() => setProvider(p.id)}
-                style={{ padding: '14px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
-                  border: `1.5px solid ${on ? 'var(--primary)' : 'var(--border-color)'}`,
-                  background: on ? 'rgba(33,72,224,0.05)' : 'var(--bg-card)' }}>
-                <Icon size={18} color={on ? 'var(--primary)' : 'var(--text-muted)'} />
-                <div style={{ fontWeight: 600, fontSize: 13.5, marginTop: 6 }}>{p.label}</div>
-              </button>
-            );
-          })}
-        </div>
-        <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 14 }}>{PROVIDERS.find((p) => p.id === provider)?.hint}</p>
-
-        {provider !== 'local' && (
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>API key</label>
-            <input type="password" value={key} onChange={(e) => setKey(e.target.value)}
-              placeholder={user?.has_ai_key ? '•••••••• (saved — paste to replace)' : 'Paste your key'} style={{ marginTop: 6 }} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 16 }}>
+            {PROVIDERS.map((p) => {
+              const Icon = p.icon; const on = provider === p.id;
+              return (
+                <button key={p.id} onClick={() => setProvider(p.id)}
+                  style={{ padding: '14px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
+                    border: `1.5px solid ${on ? 'var(--primary)' : 'var(--border-color)'}`,
+                    background: on ? 'rgba(33,72,224,0.05)' : 'var(--bg-card)' }}>
+                  <Icon size={18} color={on ? 'var(--primary)' : 'var(--text-muted)'} />
+                  <div style={{ fontWeight: 600, fontSize: 13.5, marginTop: 6 }}>{p.label}</div>
+                </button>
+              );
+            })}
           </div>
-        )}
+          <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 14 }}>{PROVIDERS.find((p) => p.id === provider)?.hint}</p>
 
-        {provider === 'local' && status?.local_available && status.models?.length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 6 }}>Local Model</label>
-            <select 
-              value={selectedModel} 
-              onChange={(e) => setSelectedModel(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--border-color)',
-                background: 'var(--bg-card)',
-                color: 'var(--text-primary)',
-                fontSize: '13.5px',
-                fontWeight: 600,
-                outline: 'none'
-              }}
-            >
-              {status.models.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
+          {provider !== 'local' && (
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>API key</label>
+              <input type="password" value={key} onChange={(e) => setKey(e.target.value)}
+                placeholder={user?.has_ai_key ? '•••••••• (saved — paste to replace)' : 'Paste your key'} style={{ marginTop: 6 }} />
+            </div>
+          )}
+
+          {provider === 'local' && status?.local_available && status.models?.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 6 }}>Local Model</label>
+              <select 
+                value={selectedModel} 
+                onChange={(e) => setSelectedModel(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-card)',
+                  color: 'var(--text-primary)',
+                  fontSize: '13.5px',
+                  fontWeight: 600,
+                  outline: 'none'
+                }}
+              >
+                {status.models.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button onClick={save} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Save</button>
+            {saved && <span style={{ color: 'var(--success)', fontSize: 13.5, fontWeight: 600 }}>✓ Saved</span>}
+            {status && (
+              <span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: status.local_available ? 'var(--success)' : 'var(--text-muted)' }}>
+                {status.local_available ? `● Local model active: ${user?.ai_model || 'llama3.2'}` : '○ Local model offline'}
+              </span>
+            )}
           </div>
-        )}
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={save} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Save</button>
-          {saved && <span style={{ color: 'var(--success)', fontSize: 13.5, fontWeight: 600 }}>✓ Saved</span>}
-          {status && (
-            <span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: status.local_available ? 'var(--success)' : 'var(--text-muted)' }}>
-              {status.local_available ? `● Local model active: ${user?.ai_model || 'llama3.2'}` : '○ Local model offline'}
-            </span>
+          {!status?.local_available && (
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
+              To enable the local model: run <code>ollama serve</code> and <code>ollama pull {status?.default_model || 'llama3.2'}</code>.
+            </p>
           )}
         </div>
-        {!status?.local_available && (
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
-            To enable the local model: run <code>ollama serve</code> and <code>ollama pull {status?.default_model || 'llama3.2'}</code>.
-          </p>
-        )}
-      </div>
+      )}
 
       <div style={card}>
         <h3 style={{ marginBottom: 10 }}>Test the AI</h3>

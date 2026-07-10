@@ -53,8 +53,13 @@ export default function ToolForm({ tool, onClose }) {
       pricing_model: src?.pricing_model || '',
       price_per_user: src?.price_per_user || '',
       deployment_fees: src?.deployment_fees || '',
+      time_to_deploy: src?.time_to_deploy || '',
+      success_stories: src?.success_stories || [],
+      draft_id: src?.draft_id || '',
     };
   });
+  const [successStories, setSuccessStories] = useState(f.success_stories || []);
+  const [storyTitle, setStoryTitle] = useState('');
   const [badges, setBadges] = useState(tool?.badges || []);
   const [newBadgeTitle, setNewBadgeTitle] = useState('');
   const [newBadgeImg, setNewBadgeImg] = useState('');
@@ -82,6 +87,32 @@ export default function ToolForm({ tool, onClose }) {
     if (editing) return;
     localStorage.setItem('tool_submit_draft', JSON.stringify(f));
   }, [editing, f]);
+
+  React.useEffect(() => {
+    if (editing) return;
+    const isNew = !localStorage.getItem('tool_submit_draft');
+    if (isNew && !f.draft_id) {
+      const dId = 'draft_' + Math.random().toString(36).substring(2, 9);
+      setF(p => ({ ...p, draft_id: dId }));
+      api('/funnel/track-submission', {
+        method: 'POST',
+        body: { action: 'start_draft', draft_id: dId },
+        auth: true
+      }).catch(() => {});
+    }
+  }, [editing]);
+
+  const onAddStory = (title, fileData) => {
+    const next = [...successStories, { title, file_url: fileData }];
+    setSuccessStories(next);
+    setF(prev => ({ ...prev, success_stories: next }));
+  };
+
+  const onRemoveStory = (index) => {
+    const next = successStories.filter((_, i) => i !== index);
+    setSuccessStories(next);
+    setF(prev => ({ ...prev, success_stories: next }));
+  };
 
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const addRow = () => {
@@ -114,14 +145,23 @@ export default function ToolForm({ tool, onClose }) {
       pricing_model: f.pricing_model, price_per_user: f.price_per_user, deployment_fees: f.deployment_fees,
       badges: badges,
       timeline: parseQuickAdd(f.timelineText),
-
+      time_to_deploy: f.time_to_deploy,
+      success_stories: f.success_stories,
     };
     if (demoHtml !== null) payload.demo_html = demoHtml;
     if (editing) payload.edit_note = editNote;
     try {
-      if (editing) { await updateTool(tool.id, payload); onClose(); }
+      if (editing) { 
+        await updateTool(tool.id, payload); 
+        onClose(); 
+      }
       else { 
         await addTool(payload); 
+        api('/funnel/track-submission', {
+          method: 'POST',
+          body: { action: 'submit', draft_id: f.draft_id || 'unknown' },
+          auth: true
+        }).catch(() => {});
         localStorage.removeItem('tool_submit_draft');
         setDone(true); 
       }
@@ -275,7 +315,10 @@ export default function ToolForm({ tool, onClose }) {
                   )}
                 </div>
               </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div><label style={lbl}>Deployed Client Account</label><input value={f.account} onChange={set('account')} placeholder="e.g. Concentrix" /></div>
+              <div><label style={lbl}>Time to Deploy / Reproduce</label><input value={f.time_to_deploy} onChange={set('time_to_deploy')} placeholder="e.g. 2 weeks, 1 month" /></div>
+            </div>
             </div>
             <div><label style={lbl}>Impact banner</label><input value={f.impact} onChange={set('impact')} placeholder='e.g. "Saved 60 hrs/mo"' /></div>
             <div>
@@ -615,6 +658,47 @@ export default function ToolForm({ tool, onClose }) {
                   <input type="file" accept=".html,text/html" onChange={onFile} style={{ display: 'none' }} />
                 </label>
               </div>
+              <div style={{ marginTop: 12, borderTop: '1px solid var(--border-color)', paddingTop: 12 }}>
+                <label style={lbl}>Success Stories (Multiple PDFs/PPTs)</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                  {successStories.map((story, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{story.title}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{story.file_url.startsWith('data:') ? '[Uploaded File]' : 'Link'}</span>
+                      <button type="button" onClick={() => onRemoveStory(idx)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Remove</button>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <input 
+                    placeholder="Story Title (e.g. Finance ROI)" 
+                    value={storyTitle} 
+                    onChange={(e) => setStoryTitle(e.target.value)} 
+                    style={{ flex: 1, padding: '6px 10px', fontSize: 12.5 }}
+                  />
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 12px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: 'var(--bg-card)', fontSize: 12.5, fontWeight: 600 }}>
+                    Upload file & Add
+                    <input type="file" accept=".pdf,.ppt,.pptx" onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (!storyTitle.trim()) {
+                        alert('Please enter a title for the success story first.');
+                        return;
+                      }
+                      if (file.size > 5 * 1024 * 1024) {
+                        alert('File size exceeds the 5MB limit.');
+                        return;
+                      }
+                      const r = new FileReader();
+                      r.onload = () => {
+                        onAddStory(storyTitle.trim(), String(r.result));
+                        setStoryTitle('');
+                      };
+                      r.readAsDataURL(file);
+                    }} style={{ display: 'none' }} />
+                  </label>
+                </div>
+              </div>
             </div>
 
             <div>
@@ -652,13 +736,20 @@ export default function ToolForm({ tool, onClose }) {
                   type="button" 
                   onClick={() => {
                     if (window.confirm('Are you sure you want to clear your draft and start over?')) {
+                      api('/funnel/track-submission', {
+                        method: 'POST',
+                        body: { action: 'discard', draft_id: f.draft_id || 'unknown' },
+                        auth: true
+                      }).catch(() => {});
                       localStorage.removeItem('tool_submit_draft');
                       setF({
                         name: '', owner: '', category: '', status: 'pilot', implementation_status: 'not_implemented',
                         impact: '', roi: '', problem: '', capabilities: '', delivers: '', benefits: '', tags: '',
                         sample: '', configs: '', demo_url: '', video_url: '', ppt_url: '', account: '', img_url: '',
-                        timelineText: '', pricing_model: '', price_per_user: '', deployment_fees: ''
+                        timelineText: '', pricing_model: '', price_per_user: '', deployment_fees: '',
+                        time_to_deploy: '', success_stories: [], draft_id: ''
                       });
+                      setSuccessStories([]);
                     }
                   }}
                   style={{ padding: '12px 20px', borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}

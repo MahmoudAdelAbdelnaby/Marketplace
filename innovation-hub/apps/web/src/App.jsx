@@ -13,6 +13,7 @@ import ManageView from './components/manage/ManageView';
 import ReviewCenter from './components/review/ReviewCenter';
 import AuthView from './components/auth/AuthView';
 import AIChatView from './components/chat/AIChatView';
+import PromoWalkthrough from './components/promo/PromoWalkthrough';
 import { useAuthStore } from './store/useAuthStore';
 import './index.css';
 
@@ -44,6 +45,7 @@ function App() {
             <Route path="/inbox" element={<InboxView />} />
             <Route path="/manage" element={<ManageView />} />
             <Route path="/settings" element={<SettingsView />} />
+            <Route path="/promo" element={<PromoWalkthrough />} />
             <Route path="*" element={<Navigate to="/catalog" replace />} />
           </Routes>
         </HubLayout>

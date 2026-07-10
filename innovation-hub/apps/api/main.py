@@ -60,6 +60,8 @@ class User(SQLModel, table=True):
     ai_provider: str = "local"
     ai_key: str = ""
     ai_model: Optional[str] = "llama3.2"
+    ai_credits: int = Field(default=5)
+    ai_usage: int = Field(default=0)
     created_at: float = Field(default_factory=lambda: time.time())
 
 
@@ -98,8 +100,80 @@ class Tool(SQLModel, table=True):
     badges: List[dict] = Field(default=[], sa_column=Column(JSON))
     notes: List[dict] = Field(default=[], sa_column=Column(JSON))
     featured: bool = Field(default=False)
+    sort_order: int = Field(default=0)
     achieved_through: str = ""
     edit_history: List[dict] = Field(default=[], sa_column=Column(JSON))
+    time_to_deploy: str = ""
+    success_stories: List[dict] = Field(default=[], sa_column=Column(JSON))
+    created_at: float = Field(default_factory=lambda: time.time())
+
+
+class GlobalApiKey(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    provider: str = "gemini" # gemini | openai
+    key_value: str
+    label: str = ""
+    is_active: bool = True
+    requests_count: int = 0
+    created_at: float = Field(default_factory=lambda: time.time())
+
+
+class ActivityLog(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    user_name: str = ""
+    page: str = ""
+    duration_seconds: int = 0
+    created_at: float = Field(default_factory=lambda: time.time())
+
+
+class AIAuditLog(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    user_name: str = ""
+    prompt: str = ""
+    response: str = ""
+    provider: str = ""
+    api_key_used: str = ""
+    latency_seconds: float = 0.0
+    prompt_chars: int = 0
+    response_chars: int = 0
+    created_at: float = Field(default_factory=lambda: time.time())
+
+
+class CatalogSearchLog(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    user_name: str = ""
+    query: str = ""
+    created_at: float = Field(default_factory=lambda: time.time())
+
+
+class ProductViewLog(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    user_name: str = ""
+    tool_id: int = Field(index=True)
+    tool_name: str = ""
+    created_at: float = Field(default_factory=lambda: time.time())
+
+
+class ActionClickLog(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    user_name: str = ""
+    action_type: str = "" # e.g. "adopt_click", "demo_launch", "deck_view"
+    tool_id: int = Field(index=True)
+    tool_name: str = ""
+    created_at: float = Field(default_factory=lambda: time.time())
+
+
+class SubmissionFunnelLog(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    user_name: str = ""
+    action: str = "" # "start_draft" | "submit" | "discard"
+    draft_id: str = ""
     created_at: float = Field(default_factory=lambda: time.time())
 
 
@@ -291,8 +365,11 @@ def public_tool(t: Tool) -> dict:
     return d
 
 
-def public_idea(i: Idea) -> dict:
-    return i.dict()
+def public_idea(i: Idea, s: Session) -> dict:
+    d = i.dict()
+    owner_user = s.get(User, i.owner_id)
+    d["owner_email"] = owner_user.email if owner_user else ""
+    return d
 
 
 # Old proxy routes removed in favor of the upgraded path-prefix proxy at the bottom of the file
@@ -554,8 +631,6 @@ def save_uploaded_file(data_url: str, prefix: str) -> str:
     except Exception as e:
         print(f"Save file {prefix} error:", e)
         return data_url
-
-
 def process_tool_files(body: dict):
     import json
     # 1. Handle ppt_url
@@ -596,6 +671,21 @@ def process_tool_files(body: dict):
             except Exception as e:
                 print("Failed to process multiple samples:", e)
 
+    # 6. Handle success_stories
+    success_stories = body.get("success_stories", [])
+    if isinstance(success_stories, list):
+        updated = False
+        for story in success_stories:
+            file_url = story.get("file_url", "")
+            if file_url.startswith("data:"):
+                if "application/vnd.openxmlformats-officedocument.presentationml.presentation" in file_url or file_url.endswith(".pptx"):
+                    story["file_url"] = save_uploaded_ppt_as_pdf(file_url)
+                else:
+                    story["file_url"] = save_uploaded_file(file_url, "story")
+                updated = True
+        if updated:
+            body["success_stories"] = success_stories
+
 
 @app.post("/tools")
 def create_tool(body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
@@ -603,9 +693,9 @@ def create_tool(body: dict, u: User = Depends(current_user), s: Session = Depend
         
     t = Tool(owner_id=u.id, owner=body.get("owner") or u.name, review_status="pending")
     for k in ("name", "category", "status", "problem", "delivers", "benefits", "impact", "sample", "configs",
-              "implementation_status", "department", "idea_id", "demo_url", "video_url", "ppt_url", "account", "img_url", "achieved_through"):
-
-        if k in body: setattr(t, k, body[k] or getattr(t, k))
+              "implementation_status", "department", "idea_id", "demo_url", "video_url", "ppt_url", "account", "img_url", "achieved_through", "sort_order", "time_to_deploy", "success_stories"):
+        if k in body:
+            setattr(t, k, body[k])
     t.capabilities = body.get("capabilities", []) or []
     t.tags = body.get("tags", []) or []
     t.timeline = body.get("timeline", []) or []
@@ -649,7 +739,7 @@ def update_tool(tool_id: int, body: dict, u: User = Depends(current_user), s: Se
         
     changed = []
     for k in ("name", "category", "status", "problem", "delivers", "benefits", "impact", "owner", "sample", "configs",
-              "implementation_status", "department", "idea_id", "demo_url", "video_url", "ppt_url", "account", "img_url", "featured", "achieved_through"):
+              "implementation_status", "department", "idea_id", "demo_url", "video_url", "ppt_url", "account", "img_url", "featured", "achieved_through", "sort_order", "time_to_deploy", "success_stories"):
         if k in body and body[k] != getattr(t, k):
             changed.append(k)
             
@@ -661,8 +751,7 @@ def update_tool(tool_id: int, body: dict, u: User = Depends(current_user), s: Se
     if "badges" in body and body["badges"] != t.badges: changed.append("badges")
 
     for k in ("name", "category", "status", "problem", "delivers", "benefits", "impact", "owner", "sample", "configs",
-              "implementation_status", "department", "idea_id", "demo_url", "video_url", "ppt_url", "account", "img_url", "featured", "achieved_through"):
-
+              "implementation_status", "department", "idea_id", "demo_url", "video_url", "ppt_url", "account", "img_url", "featured", "achieved_through", "sort_order", "time_to_deploy", "success_stories"):
         if k in body: setattr(t, k, body[k])
     if "capabilities" in body: t.capabilities = body["capabilities"] or []
     if "tags" in body: t.tags = body["tags"] or []
@@ -793,24 +882,24 @@ def alerts(u: User = Depends(current_user), s: Session = Depends(get_session)):
 @app.get("/ideas")
 def list_ideas(s: Session = Depends(get_session)):
     rows = s.exec(select(Idea).order_by(Idea.updated_at.desc())).all()
-    return [public_idea(i) for i in rows]
+    return [public_idea(i, s) for i in rows]
 
 
 @app.get("/my/ideas")
 def my_ideas(u: User = Depends(current_user), s: Session = Depends(get_session)):
     rows = s.exec(select(Idea).where(Idea.owner_id == u.id).order_by(Idea.updated_at.desc())).all()
-    return [public_idea(i) for i in rows]
+    return [public_idea(i, s) for i in rows]
 
 
 @app.get("/review/ideas")
 def review_ideas(u: User = Depends(require("committee", "approver", "admin")), s: Session = Depends(get_session)):
     rows = s.exec(select(Idea).where(Idea.status.in_(["proposed", "changes"])).order_by(Idea.updated_at)).all()
-    return [public_idea(i) for i in rows]
+    return [public_idea(i, s) for i in rows]
 
 @app.get("/archive/ideas")
 def archive_ideas(u: User = Depends(require("committee", "approver", "admin")), s: Session = Depends(get_session)):
     rows = s.exec(select(Idea).where(Idea.status.in_(["declined", "changes"])).order_by(Idea.updated_at.desc())).all()
-    return [public_idea(i) for i in rows]
+    return [public_idea(i, s) for i in rows]
 
 
 @app.post("/ideas")
@@ -845,7 +934,7 @@ def save_idea(body: dict, u: User = Depends(current_user), s: Session = Depends(
                 i.decided_by = "Auto-routed"
     i.updated_at = time.time()
     s.add(i); s.commit(); s.refresh(i)
-    return public_idea(i)
+    return public_idea(i, s)
 
 
 @app.post("/ideas/{idea_id}/vote")
@@ -856,7 +945,7 @@ def vote_idea(idea_id: int, u: User = Depends(current_user), s: Session = Depend
     voters = [v for v in voters if v != u.id] if u.id in voters else voters + [u.id]
     i.voters = voters; i.votes = len(voters)
     s.add(i); s.commit(); s.refresh(i)
-    return public_idea(i)
+    return public_idea(i, s)
 
 
 @app.post("/ideas/{idea_id}/review")
@@ -879,7 +968,7 @@ def review_idea(idea_id: int, body: ReviewIn, u: User = Depends(require("committ
 
     i.updated_at = time.time()
     s.add(i); s.commit(); s.refresh(i)
-    return public_idea(i)
+    return public_idea(i, s)
 
 # ----------------------------------------------------------------- VOC
 @app.get("/voc")
@@ -1161,17 +1250,79 @@ async def ai_status():
 
 
 @app.post("/ai/generate")
-async def ai_generate(body: AIGenerateIn, u: User = Depends(current_user)):
+async def ai_generate(body: AIGenerateIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    if u.ai_usage >= u.ai_credits:
+        raise HTTPException(403, f"You have run out of AI credits ({u.ai_usage}/{u.ai_credits}). Please contact your administrator to recharge.")
+
+    prompt = body.prompt
+    start_time = time.time()
+    
+    def record_usage(prompt_str, response_str, provider_name, key_label, key_used_val):
+        latency = time.time() - start_time
+        u.ai_usage += 1
+        s.add(u)
+        
+        masked_key = ""
+        if key_used_val:
+            masked_key = key_used_val[:4] + "..." + key_used_val[-4:] if len(key_used_val) > 8 else "..."
+        
+        audit = AIAuditLog(
+            user_id=u.id,
+            user_name=u.name or u.email,
+            prompt=prompt_str,
+            response=response_str,
+            provider=provider_name,
+            api_key_used=f"{key_label} ({masked_key})" if key_label else masked_key,
+            latency_seconds=round(latency, 2),
+            prompt_chars=len(prompt_str),
+            response_chars=len(response_str)
+        )
+        s.add(audit)
+        s.commit()
+
     provider = u.ai_provider or "local"
-    model = getattr(u, "ai_model", None) or OLLAMA_MODEL
+    personal_key = u.ai_key
+    
+    if provider != "local" and personal_key:
+        try:
+            if provider == "gemini":
+                res = await _gemini(personal_key, prompt)
+                record_usage(prompt, res, "gemini", "Personal Key", personal_key)
+                return {"text": res, "via": "personal gemini"}
+            elif provider == "openai":
+                res = await _openai(personal_key, prompt)
+                record_usage(prompt, res, "openai", "Personal Key", personal_key)
+                return {"text": res, "via": "personal openai"}
+        except Exception as e:
+            print(f"Personal key ({provider}) failed, falling back to global keys pool. Error: {e}")
+
+    global_keys = s.exec(select(GlobalApiKey).where(GlobalApiKey.is_active == True).order_by(GlobalApiKey.id)).all()
+    
+    for gkey in global_keys:
+        try:
+            if gkey.provider == "gemini":
+                res = await _gemini(gkey.key_value, prompt)
+                gkey.requests_count += 1
+                s.add(gkey)
+                record_usage(prompt, res, "gemini", gkey.label or f"Global Key {gkey.id}", gkey.key_value)
+                return {"text": res, "via": f"global {gkey.label or 'key'}"}
+            elif gkey.provider == "openai":
+                res = await _openai(gkey.key_value, prompt)
+                gkey.requests_count += 1
+                s.add(gkey)
+                record_usage(prompt, res, "openai", gkey.label or f"Global Key {gkey.id}", gkey.key_value)
+                return {"text": res, "via": f"global {gkey.label or 'key'}"}
+        except Exception as e:
+            print(f"Global key {gkey.label or gkey.id} failed. Error: {e}")
+            continue
+
     try:
-        if provider == "gemini" and u.ai_key:
-            return {"text": await _gemini(u.ai_key, body.prompt), "via": "gemini"}
-        if provider == "openai" and u.ai_key:
-            return {"text": await _openai(u.ai_key, body.prompt), "via": "openai"}
-        return {"text": await _ollama(body.model or model, body.prompt), "via": f"local ({model})"}
-    except httpx.HTTPError as e:
-        raise HTTPException(502, f"AI request failed: {e}")
+        model = getattr(u, "ai_model", None) or OLLAMA_MODEL
+        res = await _ollama(body.model or model, prompt)
+        record_usage(prompt, res, "local", "Ollama", "")
+        return {"text": res, "via": f"local ({model})"}
+    except Exception as e:
+        raise HTTPException(502, f"AI generation failed. Personal and all global keys in the pool failed/exhausted, and local model is offline. Latent error: {e}")
 
 
 async def _ollama(model: str, prompt: str) -> str:
@@ -1211,6 +1362,278 @@ async def _openai(key: str, prompt: str) -> str:
         return r.json()["choices"][0]["message"]["content"].strip()
 
 
+# ----------------------------------------------------------------- tracking & analytics / global keys / credits
+
+class TrackActivityIn(BaseModel):
+    page: str
+    seconds: int
+
+@app.post("/me/track-activity")
+def track_activity(body: TrackActivityIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    one_hour_ago = time.time() - 3600
+    log = s.exec(
+        select(ActivityLog)
+        .where(ActivityLog.user_id == u.id)
+        .where(ActivityLog.page == body.page)
+        .where(ActivityLog.created_at >= one_hour_ago)
+        .order_by(ActivityLog.created_at.desc())
+    ).first()
+    
+    if log:
+        log.duration_seconds += body.seconds
+        log.created_at = time.time()
+        s.add(log)
+    else:
+        log = ActivityLog(
+            user_id=u.id,
+            user_name=u.name or u.email,
+            page=body.page,
+            duration_seconds=body.seconds
+        )
+        s.add(log)
+    s.commit()
+    return {"ok": True}
+
+
+class TrackSearchIn(BaseModel):
+    query: str
+
+@app.post("/catalog/track-search")
+def track_search(body: TrackSearchIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    if not body.query.strip():
+        return {"ok": True}
+    log = CatalogSearchLog(
+        user_id=u.id,
+        user_name=u.name or u.email,
+        query=body.query.strip()
+    )
+    s.add(log)
+    s.commit()
+    return {"ok": True}
+
+
+@app.post("/tools/{tool_id}/track-view")
+def track_tool_view(tool_id: int, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    t = s.get(Tool, tool_id)
+    if not t:
+        raise HTTPException(404, "Tool not found")
+    log = ProductViewLog(
+        user_id=u.id,
+        user_name=u.name or u.email,
+        tool_id=tool_id,
+        tool_name=t.name
+    )
+    s.add(log)
+    s.commit()
+    return {"ok": True}
+
+
+class TrackActionIn(BaseModel):
+    action_type: str
+
+@app.post("/tools/{tool_id}/track-action")
+def track_tool_action(tool_id: int, body: TrackActionIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    t = s.get(Tool, tool_id)
+    if not t:
+        raise HTTPException(404, "Tool not found")
+    log = ActionClickLog(
+        user_id=u.id,
+        user_name=u.name or u.email,
+        action_type=body.action_type,
+        tool_id=tool_id,
+        tool_name=t.name
+    )
+    s.add(log)
+    s.commit()
+    return {"ok": True}
+
+
+class TrackFunnelIn(BaseModel):
+    action: str
+    draft_id: str
+
+@app.post("/funnel/track-submission")
+def track_submission_funnel(body: TrackFunnelIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    log = SubmissionFunnelLog(
+        user_id=u.id,
+        user_name=u.name or u.email,
+        action=body.action,
+        draft_id=body.draft_id
+    )
+    s.add(log)
+    s.commit()
+    return {"ok": True}
+
+
+@app.get("/admin/analytics")
+def get_analytics(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    activity_rows = s.exec(select(ActivityLog)).all()
+    time_spent = {}
+    for r in activity_rows:
+        key = (r.user_name, r.page)
+        time_spent[key] = time_spent.get(key, 0) + r.duration_seconds
+    
+    time_spent_aggregated = [
+        {"user_name": k[0], "page": k[1], "minutes": round(v / 60, 1)}
+        for k, v in time_spent.items()
+    ]
+
+    search_rows = s.exec(select(CatalogSearchLog)).all()
+    queries = {}
+    for r in search_rows:
+        q = r.query.lower().strip()
+        queries[q] = queries.get(q, 0) + 1
+    popular_searches = sorted(
+        [{"query": k, "count": v} for k, v in queries.items()],
+        key=lambda x: x["count"],
+        reverse=True
+    )[:50]
+
+    view_rows = s.exec(select(ProductViewLog)).all()
+    views = {}
+    for r in view_rows:
+        views[r.tool_name] = views.get(r.tool_name, 0) + 1
+    top_visited = sorted(
+        [{"tool_name": k, "count": v} for k, v in views.items()],
+        key=lambda x: x["count"],
+        reverse=True
+    )[:50]
+
+    click_rows = s.exec(select(ActionClickLog).order_by(ActionClickLog.created_at.desc())).all()
+    action_clicks = [
+        {
+            "user_name": r.user_name,
+            "action_type": r.action_type,
+            "tool_name": r.tool_name,
+            "created_at": r.created_at
+        }
+        for r in click_rows[:100]
+    ]
+
+    funnel_rows = s.exec(select(SubmissionFunnelLog).order_by(SubmissionFunnelLog.created_at.desc())).all()
+    funnel_logs = [
+        {
+            "user_name": r.user_name,
+            "action": r.action,
+            "draft_id": r.draft_id,
+            "created_at": r.created_at
+        }
+        for r in funnel_rows[:100]
+    ]
+
+    audit_rows = s.exec(select(AIAuditLog).order_by(AIAuditLog.created_at.desc())).all()
+    ai_audit_logs = [
+        {
+            "user_name": r.user_name,
+            "prompt": r.prompt,
+            "response": r.response,
+            "provider": r.provider,
+            "api_key_used": r.api_key_used,
+            "latency_seconds": r.latency_seconds,
+            "prompt_chars": r.prompt_chars,
+            "response_chars": r.response_chars,
+            "created_at": r.created_at
+        }
+        for r in audit_rows[:100]
+    ]
+
+    return {
+        "time_spent": time_spent_aggregated,
+        "popular_searches": popular_searches,
+        "top_visited": top_visited,
+        "action_clicks": action_clicks,
+        "funnel_logs": funnel_logs,
+        "ai_audit_logs": ai_audit_logs
+    }
+
+
+@app.get("/admin/keys")
+@app.get("/admin/api-keys")
+def get_global_api_keys(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    keys = s.exec(select(GlobalApiKey).order_by(GlobalApiKey.id)).all()
+    result = []
+    for k in keys:
+        val = k.key_value
+        masked = val[:4] + "..." + val[-4:] if len(val) > 8 else "..."
+        result.append({
+            "id": k.id,
+            "provider": k.provider,
+            "label": k.label,
+            "description": k.label,
+            "is_active": k.is_active,
+            "request_count": k.requests_count,
+            "requests_count": k.requests_count,
+            "key_value": val,
+            "key_value_masked": masked,
+            "created_at": k.created_at
+        })
+    return result
+
+
+class GlobalApiKeyIn(BaseModel):
+    provider: Optional[str] = "gemini"
+    key_value: str
+    label: Optional[str] = ""
+    description: Optional[str] = ""
+
+
+@app.post("/admin/keys")
+@app.post("/admin/api-keys")
+def add_global_api_key(body: GlobalApiKeyIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    if not body.key_value.strip():
+        raise HTTPException(400, "Key value cannot be empty")
+    provider = body.provider or "gemini"
+    lbl = body.label.strip() or body.description.strip() or f"Global {provider.upper()} Key"
+    gkey = GlobalApiKey(
+        provider=provider,
+        key_value=body.key_value.strip(),
+        label=lbl,
+        is_active=True
+    )
+    s.add(gkey)
+    s.commit()
+    s.refresh(gkey)
+    return {"ok": True, "id": gkey.id, "description": gkey.label, "is_active": gkey.is_active}
+
+
+@app.delete("/admin/keys/{key_id}")
+@app.delete("/admin/api-keys/{key_id}")
+def delete_global_api_key(key_id: int, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    gkey = s.get(GlobalApiKey, key_id)
+    if not gkey:
+        raise HTTPException(404, "Not found")
+    s.delete(gkey)
+    s.commit()
+    return {"ok": True}
+
+
+@app.put("/admin/keys/{key_id}/toggle")
+@app.put("/admin/api-keys/{key_id}/toggle")
+def toggle_global_api_key(key_id: int, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    gkey = s.get(GlobalApiKey, key_id)
+    if not gkey:
+        raise HTTPException(404, "Not found")
+    gkey.is_active = not gkey.is_active
+    s.add(gkey)
+    s.commit()
+    s.refresh(gkey)
+    return {"ok": True, "is_active": gkey.is_active}
+
+
+class UserCreditsIn(BaseModel):
+    credits: int
+
+@app.put("/admin/users/{user_id}/credits")
+def update_user_credits(user_id: int, body: UserCreditsIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    target_user = s.get(User, user_id)
+    if not target_user:
+        raise HTTPException(404, "User not found")
+    target_user.ai_credits = max(0, body.credits)
+    s.add(target_user)
+    s.commit()
+    return {"ok": True, "ai_credits": target_user.ai_credits}
+
+
 # ----------------------------------------------------------------- startup / migrate / seed
 def migrate():
     if "sqlite" not in str(engine.url):
@@ -1227,7 +1650,8 @@ def migrate():
                          ("demo_html", "TEXT DEFAULT ''"), ("has_demo", "BOOLEAN DEFAULT 0"),
                          ("account", "VARCHAR DEFAULT ''"), ("img_url", "VARCHAR DEFAULT ''"),
                          ("badges", "JSON DEFAULT '[]'"), ("featured", "BOOLEAN DEFAULT 0"),
-                         ("edit_history", "JSON DEFAULT '[]'")]:
+                         ("edit_history", "JSON DEFAULT '[]'"), ("sort_order", "INTEGER DEFAULT 0"),
+                         ("time_to_deploy", "VARCHAR DEFAULT ''"), ("success_stories", "JSON DEFAULT '[]'")]:
             if tcols and col not in tcols:
                 conn.exec_driver_sql(f"ALTER TABLE tool ADD COLUMN {col} {ddl}")
         icols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(idea)").fetchall()]
@@ -1238,7 +1662,8 @@ def migrate():
                 conn.exec_driver_sql(f"ALTER TABLE idea ADD COLUMN {col} {ddl}")
         
         ucols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(user)").fetchall()]
-        for col, ddl in [("ai_model", "VARCHAR DEFAULT 'llama3.2'"), ("department", "VARCHAR DEFAULT ''")]:
+        for col, ddl in [("ai_model", "VARCHAR DEFAULT 'llama3.2'"), ("department", "VARCHAR DEFAULT ''"),
+                         ("ai_credits", "INTEGER DEFAULT 5"), ("ai_usage", "INTEGER DEFAULT 0")]:
             if ucols and col not in ucols:
                 conn.exec_driver_sql(f"ALTER TABLE user ADD COLUMN {col} {ddl}")
 

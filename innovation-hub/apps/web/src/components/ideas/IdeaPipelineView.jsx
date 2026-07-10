@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PlusCircle, Save, Send, Layers, TableProperties, Trash2, X, Plus, Search, Filter, Download } from 'lucide-react';
+import { PlusCircle, Save, Send, Layers, TableProperties, Trash2, X, Plus, Search, Filter, Download, Mail } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import styles from '../layout/Layout.module.css';
 import Sidebar from '../layout/Sidebar';
@@ -359,6 +359,7 @@ export default function IdeaPipelineView() {
                   <thead>
                     <tr style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontWeight: 700 }}>
                       <th style={{ padding: '14px 16px' }}>Idea Title</th>
+                      <th style={{ padding: '14px 16px' }}>Creator</th>
                       <th style={{ padding: '14px 16px' }}>Team</th>
                       <th style={{ padding: '14px 16px' }}>Status</th>
                       <th style={{ padding: '14px 16px', textAlign: 'center' }}>Completeness</th>
@@ -377,6 +378,20 @@ export default function IdeaPipelineView() {
                           <td style={{ padding: '16px 16px', fontWeight: 600, color: 'var(--text-primary)' }}>
                             {idea.name}
                             {canvas.id === idea.id && <span style={{ marginLeft: 8, fontSize: 10, background: 'var(--secondary)', color: 'var(--primary-text)', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>EDITING</span>}
+                          </td>
+                          <td style={{ padding: '16px 16px', color: 'var(--text-secondary)', fontSize: 13 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span>{idea.owner || '—'}</span>
+                              {idea.owner_email && (
+                                <a 
+                                  href={`mailto:${idea.owner_email}?subject=${encodeURIComponent(`Innovation Hub: Regarding your idea "${idea.name}"`)}`}
+                                  style={{ color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}
+                                  title={`Contact ${idea.owner}`}
+                                >
+                                  <Mail size={13} />
+                                </a>
+                              )}
+                            </div>
                           </td>
                           <td style={{ padding: '16px 16px', color: 'var(--text-secondary)', fontSize: 13 }}>
                             {idea.team || '—'}

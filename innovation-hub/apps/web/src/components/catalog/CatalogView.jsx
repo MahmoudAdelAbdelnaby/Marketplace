@@ -4,6 +4,7 @@ import { Search, Plus, ChevronLeft, ChevronRight, Sparkles, X, Layers } from 'lu
 import { useCatalogStore } from '../../store/useCatalogStore';
 import ToolForm from './ToolForm';
 import BrandShapes from '../ui/BrandShapes';
+import { api } from '../../api';
 
 const STATUS_STYLE = {
   implemented: { bg: 'rgba(37,226,204,0.15)', fg: '#00897b' },
@@ -477,10 +478,27 @@ export default function CatalogView() {
   };
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const timers = Object.entries(secQueries).map(([secId, query]) => {
+      if (!query.trim()) return null;
+      return setTimeout(() => {
+        api('/catalog/track-search', {
+          method: 'POST',
+          body: { query: query.trim() },
+          auth: true
+        }).catch(() => {});
+      }, 1500);
+    });
+
+    return () => {
+      timers.forEach(t => t && clearTimeout(t));
+    };
+  }, [secQueries]);
   const list = filtered();
   
-  // High impact or pilot tools are featured
-  const featuredTools = tools.filter(t => t.featured);
+  // High impact or pilot tools are featured, sorted by display rank ascending
+  const featuredTools = tools.filter(t => t.featured).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
   return (
     <div style={{ position: 'relative', zIndex: 1 }}>
@@ -662,7 +680,7 @@ export default function CatalogView() {
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 18 }}>
-                {filteredItems.map((t) => (
+                {[...filteredItems].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map((t) => (
                   <ToolCard 
                     key={t.id} 
                     t={t} 

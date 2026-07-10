@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Settings, LogOut, Moon, Sun, Bell, Sparkles, Send, X, ChevronDown, LayoutGrid, Map, MessageSquare, Lightbulb, CheckSquare, Shield } from 'lucide-react';
+import { Settings, LogOut, Moon, Sun, Bell, Sparkles, Send, X, ChevronDown, LayoutGrid, Map, MessageSquare, Lightbulb, CheckSquare, Shield, Zap } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useCatalogStore } from '../../store/useCatalogStore';
 import { useCanvasStore } from '../../store/useCanvasStore';
@@ -21,7 +21,8 @@ const linkStyle = (isActive) => ({
 const DISCOVER_ITEMS = [
   { to: '/catalog', label: 'Catalog', desc: 'Browse and search available tools', icon: LayoutGrid },
   { to: '/roadmap', label: 'Products Roadmap', desc: 'See what is planned and upcoming', icon: Map },
-  { to: '/voice', label: 'Voice of Clients', desc: 'Review client feedback and feature requests', icon: MessageSquare }
+  { to: '/voice', label: 'Voice of Clients', desc: 'Review client feedback and feature requests', icon: MessageSquare },
+  { to: '/promo', label: 'Interactive Promo', desc: 'Auto-playing audio walkthrough video', icon: Sparkles }
 ];
 
 const BUILD_ITEMS = [
@@ -159,7 +160,16 @@ export function UserDropdown({ user, logout, setThemeMode, theme }) {
       }}>
         <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
           <div style={{ fontSize: 13, fontWeight: 600 }}>{user.name}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{ROLE_LABEL[user.role] || user.role}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>
+            {ROLE_LABEL[user.role] || user.role}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, color: '#f59e0b', fontWeight: 700, fontSize: 11 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Zap size={10} fill="#f59e0b" />
+              <span>AI</span>
+            </div>
+            <span>{Math.max(0, (user.ai_credits ?? 5) - (user.ai_usage ?? 0))}/{user.ai_credits ?? 5}</span>
+          </div>
         </div>
         <div style={{ width: 34, height: 34, borderRadius: 999, background: 'var(--primary)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 14 }}>
           {user.name.charAt(0)}
@@ -221,15 +231,75 @@ export function UserDropdown({ user, logout, setThemeMode, theme }) {
 // scoping canvas lives under Idea Pipeline as one module.
 export default function HubLayout({ children }) {
   const user = useAuthStore((s) => s.user);
+  const reloadUser = useAuthStore((s) => s.reloadUser);
   const location = useLocation();
   const isFixedPage = ['/chat', '/ideas'].includes(location.pathname);
   const logout = useAuthStore((s) => s.logout);
   const [theme, setTheme] = useState(() => (document.documentElement.getAttribute('data-theme') || 'light'));
+  
   const setThemeMode = (mode) => {
     document.documentElement.setAttribute('data-theme', mode);
     localStorage.setItem('hub_theme', mode);
     setTheme(mode);
   };
+
+  useEffect(() => {
+    reloadUser();
+  }, [reloadUser, location.pathname]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        reloadUser();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [reloadUser]);
+
+  useEffect(() => {
+    let secondsElapsed = 0;
+
+    const getPageName = (path) => {
+      if (path.startsWith('/catalog')) return 'Catalog';
+      if (path.startsWith('/tools')) return 'Tool Details';
+      if (path.startsWith('/chat')) return 'AI Chat';
+      if (path.startsWith('/ideas')) return 'Idea Pipeline';
+      if (path.startsWith('/voice')) return 'Voice of Clients';
+      if (path.startsWith('/roadmap')) return 'Products Roadmap';
+      if (path.startsWith('/review')) return 'Review Center';
+      if (path.startsWith('/admin')) return 'Admin Center';
+      if (path.startsWith('/manage')) return 'My Workspace';
+      if (path.startsWith('/settings')) return 'Settings';
+      return 'Other';
+    };
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        secondsElapsed += 5;
+        if (secondsElapsed >= 10) {
+          api('/me/track-activity', {
+            method: 'POST',
+            body: { page: getPageName(location.pathname), seconds: secondsElapsed },
+            auth: true
+          }).catch(() => {});
+          secondsElapsed = 0;
+        }
+      }
+    }, 5000);
+
+    return () => {
+      clearInterval(interval);
+      if (secondsElapsed > 0) {
+        api('/me/track-activity', {
+          method: 'POST',
+          body: { page: getPageName(location.pathname), seconds: secondsElapsed },
+          auth: true
+        }).catch(() => {});
+      }
+    };
+  }, [location.pathname]);
+
   const iconBtn = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 999, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer' };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>

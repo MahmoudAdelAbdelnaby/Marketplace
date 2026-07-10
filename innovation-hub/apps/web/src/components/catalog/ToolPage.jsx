@@ -53,7 +53,11 @@ function StatusBadge({ status }) { const c = STATUS_COLOR[status] || '#94A3B8'; 
 function SponsorBox({ tool }) {
   const sponsorTool = useCatalogStore((s) => s.sponsorTool);
   const [open, setOpen] = useState(false); const [kind, setKind] = useState('sponsor'); const [note, setNote] = useState(''); const [sent, setSent] = useState(false);
-  const send = async () => { await sponsorTool(tool.id, kind, note); setSent(true); };
+  const send = async () => { 
+    api(`/tools/${tool.id}/track-action`, { method: 'POST', body: { action_type: `request_${kind}` }, auth: true }).catch(() => {});
+    await sponsorTool(tool.id, kind, note); 
+    setSent(true); 
+  };
   if (sent) return <div style={{ background: 'var(--secondary)', borderRadius: 10, padding: '10px 12px', fontSize: 13, color: 'var(--primary-text)', fontWeight: 600 }}>✓ Sent to the product owner — they'll be in touch.</div>;
   return (
     <div style={{ marginTop: 14, border: '1px solid var(--border-color)', borderRadius: 12, padding: 14 }}>
@@ -302,6 +306,9 @@ function DemoArea({ tool }) {
           <a 
             href={url} 
             download={`${tool.name || 'presentation'}.pptx`}
+            onClick={() => {
+              api(`/tools/${tool.id}/track-action`, { method: 'POST', body: { action_type: 'deck_download' }, auth: true }).catch(() => {});
+            }}
             style={{ 
               display: 'inline-flex', alignItems: 'center', gap: 6, 
               padding: '10px 20px', borderRadius: 8, background: 'var(--primary)', 
@@ -329,6 +336,16 @@ function DemoArea({ tool }) {
     if (tool.hasDemo || tool.demo_html) t.push({ id: 'html', label: 'HTML demo', icon: Code });
     if (tool.video_url) t.push({ id: 'video', label: 'Video', icon: PlayCircle });
     if (tool.ppt_url) t.push({ id: 'ppt', label: 'Deck', icon: Presentation });
+    if (tool.success_stories && Array.isArray(tool.success_stories)) {
+      tool.success_stories.forEach((story, idx) => {
+        t.push({
+          id: `story-${idx}`,
+          label: story.title || `Success Story ${idx + 1}`,
+          icon: Presentation,
+          storyUrl: story.file_url
+        });
+      });
+    }
     return t;
   }, [tool]);
   
@@ -662,7 +679,10 @@ function DemoArea({ tool }) {
             </div>
 
             <button 
-              onClick={() => window.open(tool.demo_url, 'demo_window', 'width=1280,height=800,menubar=no,toolbar=yes,location=yes,status=no')}
+              onClick={() => {
+                api(`/tools/${tool.id}/track-action`, { method: 'POST', body: { action_type: 'demo_launch' }, auth: true }).catch(() => {});
+                window.open(tool.demo_url, 'demo_window', 'width=1280,height=800,menubar=no,toolbar=yes,location=yes,status=no');
+              }}
               style={{ 
                 display: 'inline-flex', alignItems: 'center', gap: 10, padding: '14px 36px',
                 borderRadius: 12, background: 'var(--primary)', color: '#fff', fontWeight: 600,
@@ -683,6 +703,35 @@ function DemoArea({ tool }) {
         {active === 'html' && (html ? <iframe ref={iframeRef} id="demoFrame" title="html" sandbox="allow-scripts allow-same-origin" srcDoc={html} onLoad={setupIframeListeners} style={{ width: '100%', height: 560, border: 'none' }} /> : <div style={{ display: 'grid', placeItems: 'center', height: 520, color: 'var(--text-muted)' }}>Loading…</div>)}
         {active === 'video' && (ytEmbed(tool.video_url) ? <iframe title="video" src={ytEmbed(tool.video_url)} allowFullScreen style={{ width: '100%', height: 560, border: 'none' }} /> : <video src={tool.video_url} controls style={{ width: '100%', height: 560, background: '#000' }} />)}
         {active === 'ppt' && renderPPT()}
+        {active && active.startsWith('story-') && (
+          (() => {
+            const tab = tabs.find(t => t.id === active);
+            if (!tab) return null;
+            const url = tab.storyUrl;
+            if (!url) return null;
+            const isPdf = url.toLowerCase().includes('application/pdf') || url.toLowerCase().endsWith('.pdf') || url.toLowerCase().includes('/api/uploads/');
+            if (isPdf) {
+              return <iframe title={tab.label} src={url} style={{ width: '100%', height: 560, border: 'none' }} />;
+            }
+            return (
+              <div style={{ height: 520, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, background: 'var(--bg-card)', padding: 24, textAlign: 'center' }}>
+                <span style={{ fontSize: 48 }}>📊</span>
+                <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>{tab.label}</h3>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 420, margin: 0 }}>This success story is a PowerPoint deck. Click below to download and view it.</p>
+                <a 
+                  href={url} 
+                  download={`${tab.label}.pptx`}
+                  onClick={() => {
+                    api(`/tools/${tool.id}/track-action`, { method: 'POST', body: { action_type: 'story_download' }, auth: true }).catch(() => {});
+                  }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px', borderRadius: 8, background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: 13, textDecoration: 'none', cursor: 'pointer' }}
+                >
+                  Download Story 💾
+                </a>
+              </div>
+            );
+          })()
+        )}
       </div>
 
       {/* Floating Notes Panel Overlay */}
@@ -882,6 +931,7 @@ export default function ToolPage() {
         .then((t) => {
           setEntries(t.timeline || []);
           setLoadingTool(false);
+          api(`/tools/${id}/track-view`, { method: 'POST', auth: true }).catch(() => {});
         })
         .catch((err) => {
           setLoadingTool(false);
@@ -942,6 +992,7 @@ export default function ToolPage() {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--badge-fg-owner)', background: 'rgba(255,132,0,0.14)', borderRadius: 999, padding: '4px 10px' }}>{tool.owner}</span>
               {tool.account && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--primary-text)', background: 'var(--secondary)', borderRadius: 999, padding: '4px 10px' }}>@ {tool.account}</span>}
+              {tool.time_to_deploy && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 999, padding: '4px 10px' }}>⏱ {tool.time_to_deploy}</span>}
               {fmtMoney(tool.roi) && <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--success)' }}>{fmtMoney(tool.roi)}/yr</span>}
             </div>
 
