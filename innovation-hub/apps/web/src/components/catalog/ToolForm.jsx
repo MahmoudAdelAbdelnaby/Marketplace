@@ -186,9 +186,8 @@ export default function ToolForm({ tool, onClose }) {
 
   return createPortal(
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,38,50,0.45)', zIndex: 9999, display: 'grid', placeItems: 'center', padding: '20px' }}>
-      <form 
+      <div 
         onClick={(e) => e.stopPropagation()} 
-        onSubmit={submit} 
         style={{ 
           width: 'min(1700px, 98%)', 
           background: 'var(--bg-card-solid)', 
@@ -763,8 +762,8 @@ export default function ToolForm({ tool, onClose }) {
                   Clear Draft
                 </button>
               )}
-              <button type="submit" disabled={busy} style={{ flex: 1, padding: '12px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, opacity: busy ? 0.6 : 1, cursor: 'pointer' }}>
-                {busy ? 'Saving…' : editing ? 'Save changes' : 'Submit for review'}
+              <button onClick={submit} disabled={busy} style={{ flex: 1, padding: '12px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, opacity: busy ? 0.6 : 1, cursor: 'pointer' }}>
+                {busy ? 'Saving...' : editing ? 'Save changes' : 'Submit for review'}
               </button>
             </div>
           </div>
@@ -776,7 +775,7 @@ export default function ToolForm({ tool, onClose }) {
             </div>
           )}
         </div>
-      </form>
+      </div>
     </div>,
     document.body
   );
