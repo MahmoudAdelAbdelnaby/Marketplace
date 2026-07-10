@@ -1653,7 +1653,8 @@ def migrate():
                          ("account", "VARCHAR DEFAULT ''"), ("img_url", "VARCHAR DEFAULT ''"),
                          ("badges", "JSON DEFAULT '[]'"), ("featured", "BOOLEAN DEFAULT 0"),
                          ("edit_history", "JSON DEFAULT '[]'"), ("sort_order", "INTEGER DEFAULT 0"),
-                         ("time_to_deploy", "VARCHAR DEFAULT ''"), ("success_stories", "JSON DEFAULT '[]'")]:
+                         ("time_to_deploy", "VARCHAR DEFAULT ''"), ("success_stories", "JSON DEFAULT '[]'"),
+                         ("co_owners", "JSON DEFAULT '[]'")]:
             if tcols and col not in tcols:
                 conn.exec_driver_sql(f"ALTER TABLE tool ADD COLUMN {col} {ddl}")
         icols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(idea)").fetchall()]
