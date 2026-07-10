@@ -13,8 +13,8 @@ services:
       - PORT=8080
       - DATABASE_URL=sqlite:////app/data/hub.db
     volumes:
-      - ./data:/app/data
-      - ./uploads:/app/uploads
+      - marketplace_data:/app/data
+      - marketplace_uploads:/app/uploads
 
   frontend:
     build:
@@ -28,3 +28,8 @@ services:
       - "80:8080"
     depends_on:
       - backend
+
+volumes:
+  marketplace_data:
+  marketplace_uploads:
+
