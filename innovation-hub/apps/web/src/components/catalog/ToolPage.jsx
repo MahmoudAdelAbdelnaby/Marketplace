@@ -1075,7 +1075,7 @@ export default function ToolPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, overflowY: 'auto', paddingRight: 8, paddingBottom: 32, height: '100%' }}>
           <TimelinePanel canEdit={canEdit} entries={entries} onChange={saveEntries} />
           <EditHistoryPanel history={tool.edit_history} toolId={tool.id} />
-          {/* <DemoArea tool={tool} /> */}
+          <DemoArea tool={tool} />
         </div>
       </div>
 

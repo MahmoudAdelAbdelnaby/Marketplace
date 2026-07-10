@@ -21,8 +21,8 @@ const linkStyle = (isActive) => ({
 const DISCOVER_ITEMS = [
   { to: '/catalog', label: 'Catalog', desc: 'Browse and search available tools', icon: LayoutGrid },
   { to: '/roadmap', label: 'Products Roadmap', desc: 'See what is planned and upcoming', icon: Map },
-  { to: '/voice', label: 'Voice of Clients', desc: 'Review client feedback and feature requests', icon: MessageSquare },
-  { to: '/promo', label: 'Interactive Promo', desc: 'Auto-playing audio walkthrough video', icon: Sparkles }
+  { to: '/voice', label: 'Voice of Clients', desc: 'Review client feedback and feature requests', icon: MessageSquare }
+  // { to: '/promo', label: 'Interactive Promo', desc: 'Auto-playing audio walkthrough video', icon: Sparkles }
 ];
 
 const BUILD_ITEMS = [
