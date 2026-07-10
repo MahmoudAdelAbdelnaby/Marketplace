@@ -656,7 +656,7 @@ export default function CatalogView() {
                   style={{
                     height: '36px', padding: '0 12px', borderRadius: '8px', boxSizing: 'border-box',
                     fontSize: 12.5, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)',
-                    cursor: 'pointer', outline: 'none'
+                    cursor: 'pointer', outline: 'none', width: '160px'
                   }}
                 >
                   <option value="All">All Statuses</option>
@@ -672,7 +672,7 @@ export default function CatalogView() {
                     style={{
                       height: '36px', padding: '0 12px', borderRadius: '8px', boxSizing: 'border-box',
                       fontSize: 12.5, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)',
-                      cursor: 'pointer', outline: 'none'
+                      cursor: 'pointer', outline: 'none', width: '160px'
                     }}
                   >
                     {departments.map(dept => (
