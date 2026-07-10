@@ -345,6 +345,22 @@ def current_user(authorization: str = Header(default=""), s: Session = Depends(g
     return user
 
 
+
+def is_owner_or_co_owner(obj, user: User) -> bool:
+    if getattr(obj, "owner_id", None) == user.id:
+        return True
+    co_owners = getattr(obj, "co_owners", None)
+    if co_owners and isinstance(co_owners, list):
+        user_email = user.email.lower().strip()
+        user_name = user.name.lower().strip()
+        for co in co_owners:
+            co_email = co.get("email", "").lower().strip()
+            co_name = co.get("name", "").lower().strip()
+            if (co_email and co_email == user_email) or (co_name and co_name == user_name):
+                return True
+    return False
+
+
 def require(*roles):
     def dep(u: User = Depends(current_user)) -> User:
         if u.role not in roles:
@@ -504,8 +520,9 @@ def list_tools(s: Session = Depends(get_session)):
 
 @app.get("/my/tools")
 def my_tools(u: User = Depends(current_user), s: Session = Depends(get_session)):
-    rows = s.exec(select(Tool).where(Tool.owner_id == u.id).order_by(Tool.created_at.desc())).all()
-    return [public_tool(t) for t in rows]
+    rows = s.exec(select(Tool).order_by(Tool.created_at.desc())).all()
+    filtered = [t for t in rows if is_owner_or_co_owner(t, u)]
+    return [public_tool(t) for t in filtered]
 
 
 @app.get("/review/tools")
@@ -724,7 +741,7 @@ def get_tool(tool_id: int, u: Optional[User] = Depends(current_user), s: Session
     if not t: raise HTTPException(404, "Not found")
     if t.review_status != "approved":
         if not u: raise HTTPException(401, "Authentication required for pending tools")
-        if t.owner_id != u.id and u.role not in ("committee", "approver", "admin"):
+        if not is_owner_or_co_owner(t, u) and u.role not in ("committee", "approver", "admin"):
             raise HTTPException(403, "Access denied")
     return public_tool(t)
 
@@ -735,7 +752,7 @@ def update_tool(tool_id: int, body: dict, u: User = Depends(current_user), s: Se
 
     t = s.get(Tool, tool_id)
     if not t: raise HTTPException(404, "Not found")
-    if t.owner_id != u.id and u.role not in ("committee", "approver", "admin"):
+    if not is_owner_or_co_owner(t, u) and u.role not in ("committee", "approver", "admin"):
         raise HTTPException(403, "Only the owner or an admin/committee can edit this tool")
         
     changed = []
@@ -831,7 +848,7 @@ def review_tool(tool_id: int, body: ReviewIn, u: User = Depends(require("committ
 def delete_tool(tool_id: int, u: User = Depends(current_user), s: Session = Depends(get_session)):
     t = s.get(Tool, tool_id)
     if not t: raise HTTPException(404, "Not found")
-    if t.owner_id != u.id and u.role != "admin":
+    if not is_owner_or_co_owner(t, u) and u.role != "admin":
         raise HTTPException(403, "Only the owner or an admin can delete this tool")
     s.delete(t); s.commit()
     return {"ok": True}
