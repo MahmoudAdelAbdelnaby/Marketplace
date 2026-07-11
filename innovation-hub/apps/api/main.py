@@ -345,6 +345,16 @@ def current_user(authorization: str = Header(default=""), s: Session = Depends(g
     return user
 
 
+def optional_user(authorization: str = Header(default=""), s: Session = Depends(get_session)) -> Optional[User]:
+    if not authorization.startswith("Bearer "):
+        return None
+    try:
+        data = jwt.decode(authorization.split(" ", 1)[1], SECRET, algorithms=[ALGO])
+    except jwt.PyJWTError:
+        return None
+    return s.get(User, int(data["sub"]))
+
+
 
 def is_owner_or_co_owner(obj, user: User) -> bool:
     if getattr(obj, "owner_id", None) == user.id:
@@ -736,7 +746,7 @@ def create_tool(body: dict, u: User = Depends(current_user), s: Session = Depend
 
 
 @app.get("/tools/{tool_id}")
-def get_tool(tool_id: int, u: Optional[User] = Depends(current_user), s: Session = Depends(get_session)):
+def get_tool(tool_id: int, u: Optional[User] = Depends(optional_user), s: Session = Depends(get_session)):
     t = s.get(Tool, tool_id)
     if not t: raise HTTPException(404, "Not found")
     if t.review_status != "approved":

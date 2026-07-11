@@ -660,10 +660,29 @@ export default function ToolForm({ tool, onClose }) {
               </div>
               <div style={{ marginTop: 8 }}>
                 <label style={lbl}>Or upload an HTML demo</label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1.5px dashed var(--border-color)', borderRadius: 10, padding: '10px 12px', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 13 }}>
-                  <Upload size={14} />{demoName ? `✓ ${demoName}` : editing && tool.has_demo ? 'HTML demo attached — choose to replace' : 'Upload self-contained .html demo'}
-                  <input type="file" accept=".html,text/html" onChange={onFile} style={{ display: 'none' }} />
-                </label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, border: '1.5px dashed var(--border-color)', borderRadius: 10, padding: '10px 12px', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 13 }}>
+                    <Upload size={14} />{demoName ? `✓ ${demoName}` : editing && tool.has_demo ? 'HTML demo attached — choose to replace' : 'Upload self-contained .html demo'}
+                    <input type="file" accept=".html,text/html" onChange={onFile} style={{ display: 'none' }} />
+                  </label>
+                  {(demoHtml !== null || (editing && tool.has_demo)) && (
+                    <button 
+                      type="button" 
+                      onClick={() => {
+                        setDemoHtml('');
+                        setDemoName('');
+                        if (editing) {
+                          // set has_demo to false in UI model representation
+                          tool.has_demo = false;
+                        }
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid #fee2e2', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: '#fee2e2', color: '#ef4444' }}
+                      title="Clear HTML Demo"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
               <div style={{ marginTop: 12, borderTop: '1px solid var(--border-color)', paddingTop: 12 }}>
                 <label style={lbl}>Success Stories (Multiple PDFs/PPTs)</label>
