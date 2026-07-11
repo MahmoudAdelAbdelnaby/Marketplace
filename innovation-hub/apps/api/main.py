@@ -1317,6 +1317,18 @@ async def ai_status():
 
 @app.post("/ai/generate")
 async def ai_generate(body: AIGenerateIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    # Enforce 5 daily requests limit for normal users (viewers/product owners/etc)
+    # Admin accounts are exempt
+    if u.role != "admin":
+        today_start = dt.datetime.combine(dt.date.today(), dt.time.min).timestamp()
+        daily_count = s.exec(
+            select(AIAuditLog)
+            .where(AIAuditLog.user_id == u.id)
+            .where(AIAuditLog.created_at >= today_start)
+        ).all()
+        if len(daily_count) >= 5:
+            raise HTTPException(403, "You have reached your daily limit of 5 AI requests.")
+
     if u.ai_usage >= u.ai_credits:
         raise HTTPException(403, f"You have run out of AI credits ({u.ai_usage}/{u.ai_credits}). Please contact your administrator to recharge.")
 
@@ -1361,7 +1373,8 @@ async def ai_generate(body: AIGenerateIn, u: User = Depends(current_user), s: Se
     provider = u.ai_provider or "local"
     personal_key = u.ai_key
     
-    if provider != "local" and personal_key:
+    # Normal users can ONLY use the global keys pool. Only Admin setting key is evaluated here.
+    if u.role == "admin" and provider != "local" and personal_key:
         try:
             if provider == "gemini":
                 res = await _gemini(personal_key, prompt)
@@ -1424,11 +1437,22 @@ async def _ollama(model: str, prompt: str) -> str:
 
 
 async def _gemini(key: str, prompt: str) -> str:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
+    # Try gemini-2.5-flash first, fallback to gemini-1.5-flash, then gemini-1.0-pro (or gemini-pro)
+    models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.0-pro", "gemini-pro"]
+    last_err = None
     async with httpx.AsyncClient(timeout=60) as c:
-        r = await c.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
-        r.raise_for_status()
-        return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        for model in models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+            try:
+                r = await c.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
+                if r.status_code == 200:
+                    return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                else:
+                    # Capture status text/error for debugging/logging
+                    last_err = f"HTTP {r.status_code}: {r.text}"
+            except Exception as ex:
+                last_err = str(ex)
+        raise Exception(f"Gemini API failed for all fallback models. Last error: {last_err}")
 
 
 async def _openai(key: str, prompt: str) -> str:
