@@ -35,6 +35,21 @@ export default function ManageView() {
     loadDraft();
   }, [me]);
 
+  const handleAddCoOwner = async (toolId) => {
+    const email = window.prompt("Enter the email address of the colleague you want to add as a co-owner:");
+    if (!email) return;
+    try {
+      await api(`/tools/${toolId}/co-owners`, {
+        method: 'POST',
+        body: { email: email.trim() }
+      });
+      alert("Co-owner added successfully! They will receive a notification in their workspace.");
+      api('/my/tools').then(setTools).catch(() => {});
+    } catch (e) {
+      alert(e.message || "Failed to add co-owner. Please verify if the email is correct and the user exists.");
+    }
+  };
+
   const myTools = tools;
   const myIdeas = ideas;
   const myVocIdeas = myIdeas.filter(i => i.voc_id !== null && i.voc_id !== undefined);
@@ -195,16 +210,31 @@ export default function ManageView() {
                       <ChevronUp size={12} /> {t.votes || 0}
                     </span>
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4 }}>Status: {t.status} | Review: {t.review_status}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4 }}>
+                    Status: {t.status} | Review: {t.review_status}
+                    {t.co_owners && t.co_owners.length > 0 && ` | Co-owners: ${t.co_owners.map(o => o.name || o.email).join(', ')}`}
+                  </div>
                 </div>
-                <button 
-                  onClick={() => nav(`/tools/${t.id}`)}
-                  style={getBtnStyle(`tool-${t.id}`)}
-                  onMouseEnter={() => setHoveredBtnId(`tool-${t.id}`)}
-                  onMouseLeave={() => setHoveredBtnId(null)}
-                >
-                  <PenLine size={14} /> View
-                </button>
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  {(t.owner_id === me.id || me.role === 'admin') && (
+                    <button 
+                      onClick={() => handleAddCoOwner(t.id)}
+                      style={getBtnStyle(`coowner-${t.id}`)}
+                      onMouseEnter={() => setHoveredBtnId(`coowner-${t.id}`)}
+                      onMouseLeave={() => setHoveredBtnId(null)}
+                    >
+                      + Add Co-owner
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => nav(`/tools/${t.id}`)}
+                    style={getBtnStyle(`tool-${t.id}`)}
+                    onMouseEnter={() => setHoveredBtnId(`tool-${t.id}`)}
+                    onMouseLeave={() => setHoveredBtnId(null)}
+                  >
+                    <PenLine size={14} /> View
+                  </button>
+                </div>
               </div>
             ))}
             {myTools.length === 0 && !draft && <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: 20 }}>No tools owned.</div>}

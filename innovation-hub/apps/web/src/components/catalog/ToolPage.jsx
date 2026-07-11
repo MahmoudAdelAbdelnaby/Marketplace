@@ -991,7 +991,10 @@ export default function ToolPage() {
             <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700, margin: '0 0 10px', lineHeight: 1.2 }}>{tool.name}</h1>
             
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--badge-fg-owner)', background: 'rgba(255,132,0,0.14)', borderRadius: 999, padding: '4px 10px' }}>{tool.owner}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--badge-fg-owner)', background: 'rgba(255,132,0,0.14)', borderRadius: 999, padding: '4px 10px' }}>Owner: {tool.owner}</span>
+              {tool.co_owners && tool.co_owners.map((co, idx) => (
+                <span key={idx} style={{ fontSize: 11, fontWeight: 600, color: 'var(--primary-text)', background: 'rgba(168,85,247,0.14)', borderRadius: 999, padding: '4px 10px' }}>Co-owner: {co.name || co.email}</span>
+              ))}
               {tool.account && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--primary-text)', background: 'var(--secondary)', borderRadius: 999, padding: '4px 10px' }}>@ {tool.account}</span>}
               {tool.time_to_deploy && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 999, padding: '4px 10px' }}>⏱ {tool.time_to_deploy}</span>}
               {fmtMoney(tool.roi) && <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--success)' }}>{fmtMoney(tool.roi)}/yr</span>}
@@ -1075,7 +1078,7 @@ export default function ToolPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, overflowY: 'auto', paddingRight: 8, paddingBottom: 32, height: '100%' }}>
           <TimelinePanel canEdit={canEdit} entries={entries} onChange={saveEntries} />
           <EditHistoryPanel history={tool.edit_history} toolId={tool.id} />
-          <DemoArea tool={tool} />
+          {/* <DemoArea tool={tool} /> */}
         </div>
       </div>
 

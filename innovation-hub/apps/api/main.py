@@ -889,11 +889,48 @@ def sponsor_tool(tool_id: int, body: SponsorIn, u: User = Depends(current_user),
     return r.dict()
 
 
+class CoOwnerIn(BaseModel):
+    email: str
+
+@app.post("/tools/{tool_id}/co-owners")
+def add_co_owner(tool_id: int, body: CoOwnerIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    t = s.get(Tool, tool_id)
+    if not t:
+        raise HTTPException(404, "Tool not found")
+    if not is_owner_or_co_owner(t, u) and u.role != "admin":
+        raise HTTPException(403, "Access denied")
+    target_email = body.email.strip().lower()
+    co_user = s.exec(select(User).where(User.email == target_email)).first()
+    if not co_user:
+        raise HTTPException(404, f"User with email '{body.email}' not found")
+    
+    co_owners = list(t.co_owners or [])
+    if any(c.get("email", "").lower().strip() == target_email for c in co_owners):
+        return {"ok": True, "message": "Already a co-owner"}
+        
+    co_owners.append({"email": co_user.email, "name": co_user.name or co_user.email})
+    t.co_owners = co_owners
+    s.add(t)
+    
+    # Send a notification to the co-owner
+    r = SponsorRequest(
+        tool_id=t.id,
+        tool_name=t.name,
+        owner_id=u.id,  # assigner
+        user_id=co_user.id,  # target user
+        user_name=u.name or u.email,
+        kind="co_owner",
+        note=f"You have been assigned as a co-owner of this tool by {u.name or u.email}."
+    )
+    s.add(r)
+    s.commit()
+    return {"ok": True}
+
 @app.get("/alerts")
 def alerts(u: User = Depends(current_user), s: Session = Depends(get_session)):
     rows = s.exec(select(SponsorRequest).order_by(SponsorRequest.created_at.desc())).all()
     if u.role != "admin":
-        rows = [r for r in rows if r.owner_id == u.id]
+        rows = [r for r in rows if r.owner_id == u.id or (r.user_id == u.id and r.kind == "co_owner")]
     return [r.dict() for r in rows]
 
 

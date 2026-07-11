@@ -43,6 +43,8 @@ export default function AdminCenter() {
   const [clicksAudits, setClicksAudits] = useState([]);
   const [funnelAudits, setFunnelAudits] = useState([]);
   const [aiAudits, setAiAudits] = useState([]);
+  const [telemetrySearch, setTelemetrySearch] = useState('');
+  const [expandedUsers, setExpandedUsers] = useState({});
 
   const load = () => api('/admin/users').then(setUsers).catch((e) => setErr(e.message));
   const loadWaitlist = () => api('/admin/users/waitlist').then(setWaitlist).catch(() => {});
@@ -313,6 +315,22 @@ export default function AdminCenter() {
       alert(`Failed to delete key: ${errDel.message}`);
     }
   };
+
+  const groupedTimeSpent = React.useMemo(() => {
+    const groups = {};
+    timeSpentData.forEach(row => {
+      const name = row.user_name || 'Unknown User';
+      if (!groups[name]) {
+        groups[name] = { userName: name, sections: [], totalMinutes: 0 };
+      }
+      groups[name].sections.push({ page: row.page, minutes: row.minutes });
+      groups[name].totalMinutes += row.minutes;
+    });
+
+    return Object.values(groups)
+      .filter(g => g.userName.toLowerCase().includes(telemetrySearch.toLowerCase()))
+      .sort((a, b) => b.totalMinutes - a.totalMinutes);
+  }, [timeSpentData, telemetrySearch]);
 
   if (me?.role !== 'admin') return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Admins only.</div>;
 
@@ -1036,20 +1054,58 @@ export default function AdminCenter() {
           {analyticsSubTab === 'time_spent' && (
             <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
               <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, marginBottom: 12 }}>User Engagement (Time Spent Leaderboard)</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {timeSpentData.map((row, idx) => (
-                  <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 13.5 }}>{row.user_name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Module: <b>{row.page}</b></div>
+              
+              {/* Search bar */}
+              <div style={{ marginBottom: 16 }}>
+                <input 
+                  type="text" 
+                  value={telemetrySearch} 
+                  onChange={(e) => setTelemetrySearch(e.target.value)} 
+                  placeholder="Search user..."
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: 10,
+                    border: '1px solid var(--border-color)', background: 'var(--bg-main)',
+                    color: 'var(--text-primary)', fontSize: 13, outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {groupedTimeSpent.map((group, idx) => {
+                  const isExpanded = expandedUsers[group.userName];
+                  return (
+                    <div key={idx} style={{ background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden' }}>
+                      <div 
+                        onClick={() => setExpandedUsers(prev => ({ ...prev, [group.userName]: !prev[group.userName] }))}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', cursor: 'pointer' }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--text-primary)' }}>{group.userName}</div>
+                          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{group.sections.length} active sections</div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--primary)' }}>
+                            {group.totalMinutes.toFixed(1)} total mins
+                          </span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{isExpanded ? '▲' : '▼'}</span>
+                        </div>
+                      </div>
+                      
+                      {isExpanded && (
+                        <div style={{ padding: '0 18px 14px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-card)', display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 10 }}>
+                          {group.sections.map((sec, sidx) => (
+                            <div key={sidx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '6px 0', borderBottom: sidx < group.sections.length - 1 ? '1px dashed var(--border-color)' : 'none' }}>
+                              <span style={{ color: 'var(--text-secondary)' }}>Section: <b>{sec.page}</b></span>
+                              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{sec.minutes.toFixed(1)} mins</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--primary)' }}>
-                      {row.minutes} mins spent
-                    </span>
-                  </div>
-                ))}
-                {timeSpentData.length === 0 && (
-                  <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>No engagement logs registered.</div>
+                  );
+                })}
+                {groupedTimeSpent.length === 0 && (
+                  <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>No engagement logs found.</div>
                 )}
               </div>
             </div>

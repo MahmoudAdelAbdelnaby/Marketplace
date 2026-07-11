@@ -268,10 +268,7 @@ export default function ToolForm({ tool, onClose }) {
               <div><label style={lbl}>Tool Name</label><input autoFocus value={f.name} onChange={set('name')} /></div>
               <div><label style={lbl}>Owner / Submitter</label><input value={f.owner} onChange={set('owner')} /></div>
             </div>
-            <div>
-              <label style={lbl}>Co-owners (comma separated emails)</label>
-              <input value={f.co_owners} onChange={set('co_owners')} placeholder="e.g. colleague@concentrix.com" />
-            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div><label style={lbl}>Section</label><select value={f.implementation_status} onChange={set('implementation_status')}>{IMPL.map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}</select></div>
               <div><label style={lbl}>Category</label><select value={f.category} onChange={set('category')}><option value="">Select Category</option><option value="IX Suite">IX Suite</option><option value="Tech Infusion">Tech Infusion</option><option value="Innovations Hub">Innovations Hub</option></select></div>

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Inbox, HandHeart, CalendarClock, Download } from 'lucide-react';
+import { Inbox, HandHeart, CalendarClock, Download, UserPlus } from 'lucide-react';
 import { api } from '../../api';
 
 const KIND = {
   sponsor: { label: 'Sponsorship', icon: HandHeart, c: '#00737f' },
   adopt: { label: 'Adoption', icon: Download, c: '#00897b' },
   meeting: { label: 'Meeting request', icon: CalendarClock, c: '#ff8400' },
+  co_owner: { label: 'Co-owner assignment', icon: UserPlus, c: '#a855f7' }
 };
 const ago = (t) => { const d = Math.floor((Date.now() / 1000 - t) / 86400); return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d}d ago`; };
 
@@ -27,10 +28,10 @@ export default function InboxView() {
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontWeight: 700, fontSize: 14 }}>{k.label}</span>
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>on <b>{a.tool_name}</b></span>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{a.kind === 'co_owner' ? 'for ' : 'on '}<b>{a.tool_name}</b></span>
                   <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-muted)' }}>{ago(a.created_at)}</span>
                 </div>
-                <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>from {a.user_name}</div>
+                <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>{a.kind === 'co_owner' ? `Assigned by ${a.user_name}` : `from ${a.user_name}`}</div>
                 {a.note && <div style={{ marginTop: 6, fontSize: 13, color: 'var(--text-secondary)', background: 'var(--secondary)', borderRadius: 8, padding: '6px 10px' }}>{a.note}</div>}
               </div>
             </div>
