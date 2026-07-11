@@ -332,8 +332,8 @@ function DemoArea({ tool }) {
 
   const tabs = useMemo(() => {
     const t = [];
-    if (tool.demo_url) t.push({ id: 'web', label: 'Web demo', icon: Globe });
-    if (tool.hasDemo || tool.demo_html) t.push({ id: 'html', label: 'HTML demo', icon: Code });
+    // if (tool.demo_url) t.push({ id: 'web', label: 'Web demo', icon: Globe });
+    // if (tool.hasDemo || tool.demo_html) t.push({ id: 'html', label: 'HTML demo', icon: Code });
     if (tool.video_url) t.push({ id: 'video', label: 'Video', icon: PlayCircle });
     if (tool.ppt_url) t.push({ id: 'ppt', label: 'Deck', icon: Presentation });
     if (tool.success_stories && Array.isArray(tool.success_stories)) {
@@ -1078,7 +1078,7 @@ export default function ToolPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, overflowY: 'auto', paddingRight: 8, paddingBottom: 32, height: '100%' }}>
           <TimelinePanel canEdit={canEdit} entries={entries} onChange={saveEntries} />
           <EditHistoryPanel history={tool.edit_history} toolId={tool.id} />
-          {/* <DemoArea tool={tool} /> */}
+          <DemoArea tool={tool} />
         </div>
       </div>
 
