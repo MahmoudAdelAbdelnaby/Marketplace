@@ -60,7 +60,7 @@ class User(SQLModel, table=True):
     ai_provider: str = "local"
     ai_key: str = ""
     ai_model: Optional[str] = "llama3.2"
-    ai_credits: int = Field(default=5)
+    ai_credits: int = Field(default=1000)
     ai_usage: int = Field(default=0)
     created_at: float = Field(default_factory=lambda: time.time())
 
@@ -1328,6 +1328,18 @@ async def ai_generate(body: AIGenerateIn, u: User = Depends(current_user), s: Se
         u.ai_usage += 1
         s.add(u)
         
+        # If prompt is a chat prompt with guidelines, strip them and only save user's final message
+        clean_prompt = prompt_str
+        if "Conversation history:" in prompt_str and "User:" in prompt_str:
+            parts = prompt_str.split("User:")
+            if len(parts) > 1:
+                clean_prompt = parts[-1].split("AI Matchmaker:")[0].strip()
+        elif "Instructions:" in prompt_str:
+            # Fallback split for structured prompts
+            parts = prompt_str.split("User:")
+            if len(parts) > 1:
+                clean_prompt = parts[-1].strip()
+                
         masked_key = ""
         if key_used_val:
             masked_key = key_used_val[:4] + "..." + key_used_val[-4:] if len(key_used_val) > 8 else "..."
@@ -1335,12 +1347,12 @@ async def ai_generate(body: AIGenerateIn, u: User = Depends(current_user), s: Se
         audit = AIAuditLog(
             user_id=u.id,
             user_name=u.name or u.email,
-            prompt=prompt_str,
+            prompt=clean_prompt,
             response=response_str,
             provider=provider_name,
             api_key_used=f"{key_label} ({masked_key})" if key_label else masked_key,
             latency_seconds=round(latency, 2),
-            prompt_chars=len(prompt_str),
+            prompt_chars=len(clean_prompt),
             response_chars=len(response_str)
         )
         s.add(audit)

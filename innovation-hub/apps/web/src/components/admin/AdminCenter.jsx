@@ -316,6 +316,66 @@ export default function AdminCenter() {
     }
   };
 
+  const exportTelemetryToCSV = (tab) => {
+    let headers = [];
+    let rows = [];
+    let filename = `telemetry-${tab}-${new Date().toISOString().slice(0, 10)}.csv`;
+
+    if (tab === 'time_spent') {
+      headers = ['User', 'Section', 'Minutes', 'Total User Minutes'];
+      groupedTimeSpent.forEach(group => {
+        group.sections.forEach(sec => {
+          rows.push([group.userName, sec.page, sec.minutes.toFixed(1), group.totalMinutes.toFixed(1)]);
+        });
+      });
+    } else if (tab === 'searches') {
+      headers = ['Search Query', 'Count'];
+      searchQueries.forEach(row => {
+        rows.push([row.query, row.count]);
+      });
+    } else if (tab === 'views') {
+      headers = ['Tool Name', 'Views Count'];
+      visitedProducts.forEach(row => {
+        rows.push([row.tool_name, row.count]);
+      });
+    } else if (tab === 'actions') {
+      headers = ['User', 'Action Type', 'Tool Name', 'Timestamp'];
+      clicksAudits.forEach(row => {
+        rows.push([row.user_name, row.action_type, row.tool_name, new Date(row.created_at).toLocaleString()]);
+      });
+    } else if (tab === 'funnels') {
+      headers = ['User', 'Action', 'Draft ID', 'Timestamp'];
+      funnelAudits.forEach(row => {
+        rows.push([row.user_name, row.action, row.draft_id, new Date(row.created_at).toLocaleString()]);
+      });
+    } else if (tab === 'ai_audit') {
+      headers = ['User', 'Prompt', 'Response', 'Provider', 'Latency Seconds', 'Timestamp'];
+      aiAudits.forEach(row => {
+        rows.push([row.user_name, row.prompt, row.response, row.provider, row.latency_seconds?.toFixed(1) || '0.0', new Date(row.created_at).toLocaleString()]);
+      });
+    }
+
+    if (rows.length === 0) {
+      alert('No data to export.');
+      return;
+    }
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(r => r.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const groupedTimeSpent = React.useMemo(() => {
     const groups = {};
     timeSpentData.forEach(row => {
@@ -1053,7 +1113,10 @@ export default function AdminCenter() {
           {/* Time spent */}
           {analyticsSubTab === 'time_spent' && (
             <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
-              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, marginBottom: 12 }}>User Engagement (Time Spent Leaderboard)</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, margin: 0 }}>User Engagement (Time Spent Leaderboard)</h3>
+                <button onClick={() => exportTelemetryToCSV('time_spent')} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}>Export CSV</button>
+              </div>
               
               {/* Search bar */}
               <div style={{ marginBottom: 16 }}>
@@ -1114,7 +1177,10 @@ export default function AdminCenter() {
           {/* Searches */}
           {analyticsSubTab === 'searches' && (
             <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
-              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Top Catalog Search Queries</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, margin: 0 }}>Top Catalog Search Queries</h3>
+                <button onClick={() => exportTelemetryToCSV('searches')} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}>Export CSV</button>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {searchQueries.map((row, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
@@ -1132,7 +1198,10 @@ export default function AdminCenter() {
           {/* Product views */}
           {analyticsSubTab === 'views' && (
             <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
-              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Product Details Popularity</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, margin: 0 }}>Product Details Popularity</h3>
+                <button onClick={() => exportTelemetryToCSV('views')} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}>Export CSV</button>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {visitedProducts.map((row, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
@@ -1154,7 +1223,10 @@ export default function AdminCenter() {
           {/* Action audits */}
           {analyticsSubTab === 'actions' && (
             <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
-              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Action Clicks Audit Trail</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, margin: 0 }}>Action Clicks Audit Trail</h3>
+                <button onClick={() => exportTelemetryToCSV('actions')} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}>Export CSV</button>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {clicksAudits.map((row, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
@@ -1177,7 +1249,10 @@ export default function AdminCenter() {
           {/* Funnel audits */}
           {analyticsSubTab === 'funnels' && (
             <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
-              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Draft Submissions Funnel</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, margin: 0 }}>Draft Submissions Funnel</h3>
+                <button onClick={() => exportTelemetryToCSV('funnels')} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}>Export CSV</button>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {funnelAudits.map((row, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
@@ -1204,7 +1279,10 @@ export default function AdminCenter() {
           {/* AI Audits */}
           {analyticsSubTab === 'ai_audit' && (
             <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
-              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Gemini Prompt &amp; Conversation Audit Logs</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, margin: 0 }}>Gemini Prompt &amp; Conversation Audit Logs</h3>
+                <button onClick={() => exportTelemetryToCSV('ai_audit')} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}>Export CSV</button>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {aiAudits.map((row, idx) => (
                   <div key={idx} style={{ padding: 14, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
