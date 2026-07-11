@@ -10,6 +10,9 @@ server {
     }
 
     location ~ ^/(api|auth|admin|me|tools|my|review|archive|alerts|ideas|voc|chat|ai) {
+        if ($http_accept ~* "text/html") {
+            rewrite ^ /index.html last;
+        }
         proxy_pass http://backend:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
