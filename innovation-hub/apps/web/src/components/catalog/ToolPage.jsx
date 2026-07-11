@@ -569,21 +569,8 @@ function DemoArea({ tool }) {
           </div>
         )}
 
-        <button
-          onClick={() => setTimelineBarOpen(!timelineBarOpen)}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 8,
-            border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: 600, fontSize: 12,
-            background: timelineBarOpen ? 'var(--secondary)' : 'transparent',
-            color: 'var(--text-secondary)',
-            marginLeft: tabs.length > 1 ? 12 : 'auto'
-          }}
-        >
-          {timelineBarOpen ? 'Hide timeline' : 'Show timeline'}
-        </button>
-
         {active && (
-          <div style={{ display: 'flex', gap: 6, marginLeft: 12 }}>
+          <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
             <button
               onClick={() => {
                 const iframe = iframeRef.current || document.querySelector('iframe[title="web"]') || document.querySelector('iframe[title="video"]') || document.querySelector('iframe[title="ppt"]');
@@ -648,7 +635,7 @@ function DemoArea({ tool }) {
         )}
       </div>
 
-      {timelineBarOpen && <TimelineBar timeline={tool.timeline} />}
+
 
       <div style={{ background: 'var(--bg-card)', minHeight: 520, position: 'relative' }}>
         {active === 'web' && (
