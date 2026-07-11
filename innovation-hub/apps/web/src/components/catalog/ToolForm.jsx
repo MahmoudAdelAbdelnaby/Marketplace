@@ -135,6 +135,11 @@ export default function ToolForm({ tool, onClose }) {
 
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr('');
+    if (editing && !editNote.trim()) {
+      setErr("Reason for Edit / Change Note is required.");
+      setBusy(false);
+      return;
+    }
     const payload = {
       name: f.name, owner: f.owner, category: f.category, status: f.status,
       implementation_status: f.implementation_status, impact: f.impact, roi: parseFloat(f.roi) || 0, problem: f.problem,
