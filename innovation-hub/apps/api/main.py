@@ -380,19 +380,17 @@ def require(*roles):
 
 
 def public_user(u: User) -> dict:
-    from sqlmodel import Session, select
-    from database import engine
     daily_count = 0
-    with Session(engine) as s:
-        try:
-            today_start = dt.datetime.combine(dt.date.today(), dt.time.min).timestamp()
+    try:
+        today_start = dt.datetime.combine(dt.date.today(), dt.time.min).timestamp()
+        with Session(engine) as s:
             daily_count = len(s.exec(
                 select(AIAuditLog)
                 .where(AIAuditLog.user_id == u.id)
                 .where(AIAuditLog.created_at >= today_start)
             ).all())
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     return {
         "id": u.id,
