@@ -1437,8 +1437,8 @@ async def _ollama(model: str, prompt: str) -> str:
 
 
 async def _gemini(key: str, prompt: str) -> str:
-    # Try gemini-2.5-flash first, fallback to gemini-1.5-flash, then gemini-1.0-pro (or gemini-pro)
-    models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.0-pro", "gemini-pro"]
+    # Try gemini-2.5-flash first, fallback to gemini-3.5-flash, gemini-1.5-flash, then gemini-1.0-pro (or gemini-pro)
+    models = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-1.5-flash", "gemini-1.0-pro", "gemini-pro"]
     last_err = None
     async with httpx.AsyncClient(timeout=60) as c:
         for model in models:
