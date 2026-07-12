@@ -163,12 +163,19 @@ export function UserDropdown({ user, logout, setThemeMode, theme }) {
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>
             {ROLE_LABEL[user.role] || user.role}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, color: '#f59e0b', fontWeight: 700, fontSize: 11 }}>
+          <div 
+            title={user.role !== 'admin' ? `AI Usage: ${user.daily_usage ?? 0}/5 daily requests used. Resets at midnight.` : `Admin AI credits: ${Math.max(0, (user.ai_credits ?? 1000) - (user.ai_usage ?? 0))}/${user.ai_credits ?? 1000} remaining.`}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, color: '#f59e0b', fontWeight: 700, fontSize: 11 }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Zap size={10} fill="#f59e0b" />
+              <Zap size={10} fill="#f59e0b" style={{ color: '#f59e0b' }} />
               <span>AI</span>
             </div>
-            <span>{Math.max(0, (user.ai_credits ?? 5) - (user.ai_usage ?? 0))}/{user.ai_credits ?? 5}</span>
+            {user.role !== 'admin' ? (
+              <span>{Math.max(0, 5 - (user.daily_usage ?? 0))}/5 daily</span>
+            ) : (
+              <span>{Math.max(0, (user.ai_credits ?? 1000) - (user.ai_usage ?? 0))}/{user.ai_credits ?? 1000}</span>
+            )}
           </div>
         </div>
         <div style={{ width: 34, height: 34, borderRadius: 999, background: 'var(--primary)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 14 }}>

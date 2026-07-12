@@ -90,6 +90,10 @@ AI Matchmaker:`;
       }]);
     } finally {
       setLoading(false);
+      try {
+        const { useAuthStore } = await import('../../store/useAuthStore');
+        useAuthStore.getState().reloadUser();
+      } catch (reloadErr) {}
     }
   };
 

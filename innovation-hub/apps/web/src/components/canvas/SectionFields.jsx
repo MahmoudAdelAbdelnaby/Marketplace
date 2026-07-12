@@ -23,6 +23,10 @@ export default function SectionFields({ sectionId }) {
       alert(`AI error: ${err.message}\n\nTip: set your AI provider in Settings.`);
     } finally {
       setLoadingAI(false);
+      try {
+        const { useAuthStore } = await import('../../store/useAuthStore');
+        useAuthStore.getState().reloadUser();
+      } catch (reloadErr) {}
     }
   };
 
@@ -36,6 +40,10 @@ export default function SectionFields({ sectionId }) {
       alert(`AI error: ${err.message}`);
     } finally {
       setLoadingPitch(false);
+      try {
+        const { useAuthStore } = await import('../../store/useAuthStore');
+        useAuthStore.getState().reloadUser();
+      } catch (reloadErr) {}
     }
   };
 
@@ -49,6 +57,10 @@ export default function SectionFields({ sectionId }) {
       alert(`AI error: ${err.message}`);
     } finally {
       setLoadingDiff(false);
+      try {
+        const { useAuthStore } = await import('../../store/useAuthStore');
+        useAuthStore.getState().reloadUser();
+      } catch (reloadErr) {}
     }
   };
 

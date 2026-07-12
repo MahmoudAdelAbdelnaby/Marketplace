@@ -380,10 +380,33 @@ def require(*roles):
 
 
 def public_user(u: User) -> dict:
-    return {"id": u.id, "email": u.email, "name": u.name, "role": u.role,
-            "department": getattr(u, "department", ""),
-            "ai_provider": u.ai_provider, "has_ai_key": bool(u.ai_key),
-            "ai_model": getattr(u, "ai_model", "llama3.2")}
+    from sqlmodel import Session, select
+    from database import engine
+    daily_count = 0
+    with Session(engine) as s:
+        try:
+            today_start = dt.datetime.combine(dt.date.today(), dt.time.min).timestamp()
+            daily_count = len(s.exec(
+                select(AIAuditLog)
+                .where(AIAuditLog.user_id == u.id)
+                .where(AIAuditLog.created_at >= today_start)
+            ).all())
+        except Exception:
+            pass
+
+    return {
+        "id": u.id,
+        "email": u.email,
+        "name": u.name,
+        "role": u.role,
+        "department": getattr(u, "department", ""),
+        "ai_provider": u.ai_provider,
+        "has_ai_key": bool(u.ai_key),
+        "ai_model": getattr(u, "ai_model", "llama3.2"),
+        "ai_credits": u.ai_credits,
+        "ai_usage": u.ai_usage,
+        "daily_usage": daily_count
+    }
 
 
 def public_tool(t: Tool) -> dict:

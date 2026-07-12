@@ -194,6 +194,10 @@ Please write a structured evaluation (3-4 paragraphs) covering:
       alert("Failed to generate evaluation: " + e.message);
     } finally {
       setEvalLoading(false);
+      try {
+        const { useAuthStore } = await import('../../store/useAuthStore');
+        useAuthStore.getState().reloadUser();
+      } catch (reloadErr) {}
     }
   };
 

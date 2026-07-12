@@ -199,6 +199,10 @@ Critique their plan and provide constructive suggestions. Be concise and profess
       setMessages((prev) => [...prev, { role: 'assistant', text: `Failed to generate response: ${err.message}` }]);
     } finally {
       setBusy(false);
+      try {
+        const { useAuthStore } = await import('../../store/useAuthStore');
+        useAuthStore.getState().reloadUser();
+      } catch (reloadErr) {}
     }
   };
 
