@@ -495,7 +495,7 @@ export default function CatalogView() {
       timers.forEach(t => t && clearTimeout(t));
     };
   }, [secQueries]);
-  const list = filtered();
+  const list = filtered().filter(t => SECTIONS.some(sec => sec.id === t.category));
   
   const featuredTools = tools.filter(t => t.featured && t.review_status === 'approved');
   const sortedFeatured = [...featuredTools].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
