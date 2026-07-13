@@ -6,6 +6,7 @@ import { useCatalogStore } from '../../store/useCatalogStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { parseQuickAdd, ENTRY_STATUS } from '../../lib/timeline';
 import { AICopilotChat } from '../hub/HubLayout';
+import { api } from '../../api';
 
 const STOP = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'are', 'our', 'have', 'across', 'every', 'when', 'where', 'they', 'their', 'manually', 'same']);
 const words = (s) => (s || '').toLowerCase().match(/[a-z]{4,}/g)?.filter((w) => !STOP.has(w)) || [];
