@@ -900,6 +900,21 @@ function EditHistoryPanel({ history, toolId }) {
   );
 }
 
+const BASE_API_URL = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
+
+const getFileLink = (val) => {
+  if (!val) return '';
+  if (/^https?:\/\//.test(val) || val.startsWith('data:')) return val;
+  const clean = val.startsWith('/') ? val : `/${val}`;
+  return `${BASE_API_URL}${clean}`;
+};
+
+const getFileName = (val) => {
+  if (!val) return '';
+  const parts = val.split('/');
+  return parts[parts.length - 1];
+};
+
 export default function ToolPage() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -1041,6 +1056,10 @@ export default function ToolPage() {
                       <a href={tool.sample} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--primary)', cursor: 'pointer' }}><ExternalLink size={13} /> View Data</a>
                     ) : tool.sample.startsWith('data:') ? (
                       <a href={tool.sample} download={`sample_data_${tool.id}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: 'var(--secondary)', color: 'var(--primary)', borderRadius: 6, textDecoration: 'none', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>↓ Download File</a>
+                    ) : (tool.sample.startsWith('/') || tool.sample.startsWith('uploads/') || tool.sample.includes('/uploads/')) ? (
+                      <a href={getFileLink(tool.sample)} download={getFileName(tool.sample)} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: 'var(--secondary)', color: 'var(--primary)', borderRadius: 6, textDecoration: 'none', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+                        ↓ Download {getFileName(tool.sample).slice(0, 15)}{getFileName(tool.sample).length > 15 ? '...' : ''}
+                      </a>
                     ) : (tool.sample)
                   ) : <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>None provided</span>}
                 </Section>
@@ -1052,6 +1071,10 @@ export default function ToolPage() {
                       <a href={tool.configs} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--primary)' }}><ExternalLink size={13} /> View Configs</a>
                     ) : tool.configs.startsWith('data:') ? (
                       <a href={tool.configs} download={`configs_${tool.id}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: 'var(--secondary)', color: 'var(--primary)', borderRadius: 6, textDecoration: 'none', fontSize: 11.5, fontWeight: 600 }}>↓ Download File</a>
+                    ) : (tool.configs.startsWith('/') || tool.configs.startsWith('uploads/') || tool.configs.includes('/uploads/')) ? (
+                      <a href={getFileLink(tool.configs)} download={getFileName(tool.configs)} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: 'var(--secondary)', color: 'var(--primary)', borderRadius: 6, textDecoration: 'none', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+                        ↓ Download {getFileName(tool.configs).slice(0, 15)}{getFileName(tool.configs).length > 15 ? '...' : ''}
+                      </a>
                     ) : (tool.configs)
                   ) : <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>None provided</span>}
                 </Section>
