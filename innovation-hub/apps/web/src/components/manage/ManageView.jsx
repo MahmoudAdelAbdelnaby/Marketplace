@@ -11,6 +11,7 @@ export default function ManageView() {
   const [tools, setTools] = useState([]);
   const [ideas, setIdeas] = useState([]);
   const [submittingTool, setSubmittingTool] = useState(false);
+  const [editingTool, setEditingTool] = useState(null);
   const [draft, setDraft] = useState(null);
   
   // Hover states for buttons
@@ -51,6 +52,8 @@ export default function ManageView() {
   };
 
   const myTools = tools;
+  const publishedTools = tools.filter(t => t.review_status === 'approved');
+  const pendingTools = tools.filter(t => t.review_status !== 'approved');
   const myIdeas = ideas;
   const myVocIdeas = myIdeas.filter(i => i.voc_id !== null && i.voc_id !== undefined);
   
@@ -165,8 +168,8 @@ export default function ManageView() {
         {/* My Tools Section */}
         <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16 }}>
           <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, marginBottom: 6 }}>My Tools / Products</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>Tools where you are the owner.</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 450, overflowY: 'auto', paddingRight: 6 }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>Tools where you are the owner or co-owner.</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: 450, overflowY: 'auto', paddingRight: 6 }}>
             {draft && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: 'var(--secondary)', border: '1px dashed var(--primary)', borderRadius: 12 }}>
                 <div style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
@@ -201,43 +204,133 @@ export default function ManageView() {
                 </div>
               </div>
             )}
-            {myTools.map(t => (
-              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 12 }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontWeight: 700, fontSize: 14.5 }}>{t.name}</span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: 'rgba(0,115,127,0.08)', color: 'var(--primary)', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
-                      <ChevronUp size={12} /> {t.votes || 0}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4 }}>
-                    Status: {t.status} | Review: {t.review_status}
-                    {t.co_owners && t.co_owners.length > 0 && ` | Co-owners: ${t.co_owners.map(o => o.name || o.email).join(', ')}`}
-                  </div>
+
+            {/* Pending Tools / Review Feedback */}
+            {pendingTools.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
+                  Pending Review & Actions Required ({pendingTools.length})
                 </div>
-                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                  {(t.owner_id === me.id || me.role === 'admin') && (
-                    <button 
-                      onClick={() => handleAddCoOwner(t.id)}
-                      style={getBtnStyle(`coowner-${t.id}`)}
-                      onMouseEnter={() => setHoveredBtnId(`coowner-${t.id}`)}
-                      onMouseLeave={() => setHoveredBtnId(null)}
-                    >
-                      + Add Co-owner
-                    </button>
-                  )}
-                  <button 
-                    onClick={() => nav(`/tools/${t.id}`)}
-                    style={getBtnStyle(`tool-${t.id}`)}
-                    onMouseEnter={() => setHoveredBtnId(`tool-${t.id}`)}
-                    onMouseLeave={() => setHoveredBtnId(null)}
-                  >
-                    <PenLine size={14} /> View
-                  </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {pendingTools.map(t => {
+                    const statusColors = 
+                      t.review_status === 'declined' ? { bg: 'rgba(239,68,68,0.1)', border: '#ef4444', text: '#ef4444', label: 'DECLINED' } :
+                      t.review_status === 'changes' ? { bg: 'rgba(245,158,11,0.1)', border: '#f59e0b', text: '#d97706', label: 'CHANGES REQUESTED' } :
+                      { bg: 'rgba(59,130,246,0.1)', border: '#3b82f6', text: '#2563eb', label: 'PENDING REVIEW' };
+                    return (
+                      <div key={t.id} style={{ padding: '14px 16px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 700, fontSize: 14.5 }}>{t.name}</span>
+                              <span style={{ background: statusColors.bg, color: statusColors.text, border: `1px solid ${statusColors.border}`, padding: '2px 8px', borderRadius: 20, fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase' }}>
+                                {statusColors.label}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4 }}>
+                              Category: {t.category} | Status: {t.status}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {(t.owner_id === me.id || me.role === 'admin') && (
+                              <button 
+                                onClick={() => handleAddCoOwner(t.id)}
+                                style={getBtnStyle(`coowner-${t.id}`)}
+                                onMouseEnter={() => setHoveredBtnId(`coowner-${t.id}`)}
+                                onMouseLeave={() => setHoveredBtnId(null)}
+                              >
+                                + Co-owner
+                              </button>
+                            )}
+                            <button 
+                              onClick={() => setEditingTool(t)}
+                              style={getBtnStyle(`edit-${t.id}`, true)}
+                              onMouseEnter={() => setHoveredBtnId(`edit-${t.id}`)}
+                              onMouseLeave={() => setHoveredBtnId(null)}
+                            >
+                              <PenLine size={13} /> Edit Submission
+                            </button>
+                            <button 
+                              onClick={() => nav(`/tools/${t.id}`)}
+                              style={getBtnStyle(`tool-${t.id}`)}
+                              onMouseEnter={() => setHoveredBtnId(`tool-${t.id}`)}
+                              onMouseLeave={() => setHoveredBtnId(null)}
+                            >
+                              View
+                            </button>
+                          </div>
+                        </div>
+                        {t.review_note && (
+                          <div style={{ padding: '10px 12px', background: t.review_status === 'declined' ? 'rgba(239,68,68,0.04)' : 'rgba(245,158,11,0.04)', borderLeft: `3px solid ${statusColors.border}`, borderRadius: 6, fontSize: 12.5, color: 'var(--text-secondary)' }}>
+                            <strong>Review Feedback:</strong> "{t.review_note}"
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            ))}
-            {myTools.length === 0 && !draft && <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: 20 }}>No tools owned.</div>}
+            )}
+
+            {/* Published Tools */}
+            <div>
+              {pendingTools.length > 0 && (
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginTop: 8, marginBottom: 8 }}>
+                  Published Products ({publishedTools.length})
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {publishedTools.map(t => (
+                  <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 12 }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontWeight: 700, fontSize: 14.5 }}>{t.name}</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: 'rgba(0,115,127,0.08)', color: 'var(--primary)', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
+                          <ChevronUp size={12} /> {t.votes || 0}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4 }}>
+                        Status: {t.status}
+                        {t.co_owners && t.co_owners.length > 0 && ` | Co-owners: ${t.co_owners.map(o => o.name || o.email).join(', ')}`}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                      {(t.owner_id === me.id || me.role === 'admin') && (
+                        <button 
+                          onClick={() => handleAddCoOwner(t.id)}
+                          style={getBtnStyle(`coowner-${t.id}`)}
+                          onMouseEnter={() => setHoveredBtnId(`coowner-${t.id}`)}
+                          onMouseLeave={() => setHoveredBtnId(null)}
+                        >
+                          + Co-owner
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => setEditingTool(t)}
+                        style={getBtnStyle(`edit-pub-${t.id}`)}
+                        onMouseEnter={() => setHoveredBtnId(`edit-pub-${t.id}`)}
+                        onMouseLeave={() => setHoveredBtnId(null)}
+                      >
+                        <PenLine size={13} /> Edit
+                      </button>
+                      <button 
+                        onClick={() => nav(`/tools/${t.id}`)}
+                        style={getBtnStyle(`tool-pub-${t.id}`)}
+                        onMouseEnter={() => setHoveredBtnId(`tool-pub-${t.id}`)}
+                        onMouseLeave={() => setHoveredBtnId(null)}
+                      >
+                        View
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {publishedTools.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: 10 }}>No published tools yet.</div>}
+              </div>
+            </div>
+
+            {publishedTools.length === 0 && pendingTools.length === 0 && !draft && (
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: 20 }}>No tools owned.</div>
+            )}
           </div>
         </div>
         
@@ -274,6 +367,7 @@ export default function ManageView() {
         </div>
       </div>
       {submittingTool && <ToolForm onClose={() => { setSubmittingTool(false); loadDraft(); }} />}
+      {editingTool && <ToolForm tool={editingTool} onClose={() => { setEditingTool(null); api('/my/tools').then(setTools).catch(() => {}); }} />}
     </div>
   );
 }

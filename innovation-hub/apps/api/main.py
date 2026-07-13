@@ -812,6 +812,12 @@ def update_tool(tool_id: int, body: dict, u: User = Depends(current_user), s: Se
     if "co_owners" in body: t.co_owners = body["co_owners"] or []
     t.has_demo = bool(t.demo_html or t.demo_url)
     
+    # If the tool is in "changes" or "declined" review status and the owner edits it,
+    # it is automatically resubmitted to the review queue (review_status = "pending").
+    if is_owner_or_co_owner(t, u) and t.review_status in ("changes", "declined"):
+        t.review_status = "pending"
+        changed.append("review_status")
+        
     if changed or body.get("edit_note"):
         history = list(t.edit_history or [])
         history.append({
