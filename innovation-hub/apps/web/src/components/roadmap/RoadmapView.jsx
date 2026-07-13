@@ -198,7 +198,7 @@ export default function RoadmapView() {
   useEffect(() => { if (tools.length === 0) load(); }, [tools.length, load]);
   const onOpen = (t) => { navigate(`/tools/${t.id}`); };
 
-  const filteredTools = tools.filter(t => selectedCategory === 'All' || t.category === selectedCategory);
+  const filteredTools = tools.filter(t => t.review_status === 'approved' && (selectedCategory === 'All' || t.category === selectedCategory));
   const totalRoi = filteredTools.reduce((a, t) => a + (t.roi || 0), 0);
 
   return (

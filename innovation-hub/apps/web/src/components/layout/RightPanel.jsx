@@ -98,7 +98,7 @@ const RightPanel = () => {
 
   const matches = useMemo(() => {
     const list = [];
-    tools.forEach(t => {
+    tools.filter(t => t.review_status === 'approved').forEach(t => {
       const score = calculateSimilarity(t, true);
       if (score > 10) {
         list.push({ item: t, isTool: true, score });

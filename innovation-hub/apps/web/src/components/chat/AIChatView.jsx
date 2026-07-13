@@ -49,7 +49,7 @@ export default function AIChatView() {
       await api('/chat/messages', { method: 'POST', body: { sender: 'user', text: input } });
       setMessages((prev) => [...prev, { sender: 'user', text: input }]);
 
-      const catalogContext = tools.map((t) => (
+      const catalogContext = tools.filter(t => t.review_status === 'approved').map((t) => (
         `- Tool ID: ${t.id}\n  Name: ${t.name}\n  Category: ${t.category}\n  Status: ${t.status}\n  Problem: ${t.problem}\n  Capabilities: ${t.capabilities?.join(', ')}\n  Link: /tools/${t.id}`
       )).join('\n\n');
 

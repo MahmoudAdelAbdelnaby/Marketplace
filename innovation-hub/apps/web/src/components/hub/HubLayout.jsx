@@ -561,7 +561,7 @@ JSON Schema to return:
     }
 
     // Build rich tools context including timeline roadmap milestones
-    const toolsContext = tools.map((t) => {
+    const toolsContext = tools.filter(t => t.review_status === 'approved').map((t) => {
       const roadmapText = (t.timeline || [])
         .map((m) => `  - [${m.date}] ${m.comment} (Status: ${m.status}${m.roadblock ? ', Roadblock: true' : ''})`)
         .join('\n');

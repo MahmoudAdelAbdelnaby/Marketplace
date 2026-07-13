@@ -497,7 +497,7 @@ export default function CatalogView() {
   }, [secQueries]);
   const list = filtered();
   
-  const featuredTools = tools.filter(t => t.featured);
+  const featuredTools = tools.filter(t => t.featured && t.review_status === 'approved');
   const sortedFeatured = [...featuredTools].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
   return (

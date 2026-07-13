@@ -79,15 +79,17 @@ export const useCatalogStore = create((set, get) => ({
 
   setQuery: (q) => set({ query: q }),
   setCategory: (c) => set({ activeCategory: c }),
-  categories: () => ['All', ...Array.from(new Set(get().tools.map((t) => t.category)))],
+  categories: () => ['All', ...Array.from(new Set(get().tools.filter((t) => t.review_status === 'approved').map((t) => t.category)))],
   filtered: () => {
     const { tools, query, activeCategory } = get();
     const q = query.trim().toLowerCase();
-    return tools.filter((t) => {
-      if (activeCategory !== 'All' && t.category !== activeCategory) return false;
-      if (!q) return true;
-      const hay = [t.name, t.owner, t.category, t.problem, t.status, (t.tags || []).join(' ')].join(' ').toLowerCase();
-      return hay.includes(q);
-    });
+    return tools
+      .filter((t) => t.review_status === 'approved')
+      .filter((t) => {
+        if (activeCategory !== 'All' && t.category !== activeCategory) return false;
+        if (!q) return true;
+        const hay = [t.name, t.owner, t.category, t.problem, t.status, (t.tags || []).join(' ')].join(' ').toLowerCase();
+        return hay.includes(q);
+      });
   },
 }));
