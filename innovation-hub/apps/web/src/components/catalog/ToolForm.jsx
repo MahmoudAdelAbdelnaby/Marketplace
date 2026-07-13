@@ -147,7 +147,7 @@ export default function ToolForm({ tool, onClose }) {
       capabilities: f.capabilities.split('\n').map((x) => x.trim()).filter(Boolean),
       delivers: f.delivers, benefits: f.benefits,
       tags: f.tags ? f.tags.split(',').map((x) => x.trim()).filter(Boolean) : [],
-      sample: f.sample, demo_url: f.demo_url, video_url: f.video_url, ppt_url: f.ppt_url,
+      sample: f.sample, configs: f.configs, demo_url: f.demo_url, video_url: f.video_url, ppt_url: f.ppt_url,
       account: f.account, img_url: f.img_url, achieved_through: f.achieved_through,
       pricing_model: f.pricing_model, price_per_user: f.price_per_user, deployment_fees: f.deployment_fees,
       badges: badges,
