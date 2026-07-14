@@ -243,12 +243,24 @@ export default function HubLayout({ children }) {
   const isFixedPage = ['/chat', '/ideas'].includes(location.pathname);
   const logout = useAuthStore((s) => s.logout);
   const [theme, setTheme] = useState(() => (document.documentElement.getAttribute('data-theme') || 'light'));
+  const lastActivityRef = useRef(Date.now());
   
   const setThemeMode = (mode) => {
     document.documentElement.setAttribute('data-theme', mode);
     localStorage.setItem('hub_theme', mode);
     setTheme(mode);
   };
+
+  useEffect(() => {
+    const handleActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+    const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'click', 'touchstart'];
+    events.forEach(e => window.addEventListener(e, handleActivity));
+    return () => {
+      events.forEach(e => window.removeEventListener(e, handleActivity));
+    };
+  }, []);
 
   useEffect(() => {
     reloadUser();
@@ -265,7 +277,8 @@ export default function HubLayout({ children }) {
   }, [reloadUser]);
 
   useEffect(() => {
-    let secondsElapsed = 0;
+    let secondsElapsedActive = 0;
+    let secondsElapsedIdle = 0;
 
     const getPageName = (path) => {
       if (path.startsWith('/catalog')) return 'Catalog';
@@ -281,29 +294,47 @@ export default function HubLayout({ children }) {
       return 'Other';
     };
 
+    const reportActivity = () => {
+      const page = getPageName(location.pathname);
+      if (secondsElapsedActive > 0) {
+        api('/me/track-activity', {
+          method: 'POST',
+          body: { page: `${page} (Active Time)`, seconds: secondsElapsedActive },
+          auth: true
+        }).catch(() => {});
+        secondsElapsedActive = 0;
+      }
+      if (secondsElapsedIdle > 0) {
+        api('/me/track-activity', {
+          method: 'POST',
+          body: { page: `${page} (Idle Time)`, seconds: secondsElapsedIdle },
+          auth: true
+        }).catch(() => {});
+        secondsElapsedIdle = 0;
+      }
+    };
+
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
-        secondsElapsed += 5;
-        if (secondsElapsed >= 10) {
-          api('/me/track-activity', {
-            method: 'POST',
-            body: { page: getPageName(location.pathname), seconds: secondsElapsed },
-            auth: true
-          }).catch(() => {});
-          secondsElapsed = 0;
+        const timeSinceLastActivity = Date.now() - lastActivityRef.current;
+        const isUserActive = timeSinceLastActivity < 5000;
+
+        if (isUserActive) {
+          secondsElapsedActive += 5;
+        } else {
+          secondsElapsedIdle += 5;
+        }
+
+        const totalElapsed = secondsElapsedActive + secondsElapsedIdle;
+        if (totalElapsed >= 10) {
+          reportActivity();
         }
       }
     }, 5000);
 
     return () => {
       clearInterval(interval);
-      if (secondsElapsed > 0) {
-        api('/me/track-activity', {
-          method: 'POST',
-          body: { page: getPageName(location.pathname), seconds: secondsElapsed },
-          auth: true
-        }).catch(() => {});
-      }
+      reportActivity();
     };
   }, [location.pathname]);
 

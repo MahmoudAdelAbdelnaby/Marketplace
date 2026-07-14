@@ -6,6 +6,44 @@ import { useAuthStore } from '../../store/useAuthStore';
 const ROLES = ['viewer', 'product_owner', 'committee', 'approver', 'admin'];
 const ROLE_LABEL = { waiting: 'Waiting', viewer: 'Viewer', product_owner: 'Product Owner', committee: 'Committee (Reviewer)', approver: 'Approver', admin: 'Admin' };
 
+function AiAuditLogRow({ row }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div style={{ padding: 12, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div 
+        onClick={() => setExpanded(!expanded)}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+      >
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          {new Date(row.created_at).toLocaleString()} • Latency: {row.latency_seconds?.toFixed(1) || '0.0'}s
+        </span>
+        <button style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 700, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+          {expanded ? 'Collapse Detail ▲' : 'Expand Detail ▼'}
+        </button>
+      </div>
+      
+      <div style={{ fontSize: 12.5, color: 'var(--text-primary)' }}>
+        <strong>Prompt:</strong>{' '}
+        <span style={{ color: 'var(--text-secondary)', whiteSpace: expanded ? 'pre-wrap' : 'normal', wordBreak: 'break-word' }}>
+          {expanded ? row.prompt : (row.prompt?.slice(0, 120) + (row.prompt?.length > 120 ? '...' : ''))}
+        </span>
+      </div>
+      
+      <div style={{ fontSize: 12.5, color: 'var(--text-primary)' }}>
+        <strong>Response:</strong>{' '}
+        <span style={{ color: 'var(--text-secondary)', whiteSpace: expanded ? 'pre-wrap' : 'normal', wordBreak: 'break-word' }}>
+          {expanded ? row.response : (row.response?.slice(0, 150) + (row.response?.length > 150 ? '...' : ''))}
+        </span>
+      </div>
+      
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', gap: 14 }}>
+        <span>Provider: <code>{row.provider || 'gemini'}</code></span>
+        {row.api_key_used && <span>Key: <code>{row.api_key_used}</code></span>}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminCenter() {
   const me = useAuthStore((s) => s.user);
   const [users, setUsers] = useState([]);
@@ -30,6 +68,10 @@ export default function AdminCenter() {
   const [editingCreditsUserId, setEditingCreditsUserId] = useState(null);
   const [editingCreditsVal, setEditingCreditsVal] = useState(5);
 
+  // API Key limits editing states
+  const [editingKeyLimitId, setEditingKeyLimitId] = useState(null);
+  const [editingKeyLimitVal, setEditingKeyLimitVal] = useState(1000);
+
   // API Key states
   const [globalKeys, setGlobalKeys] = useState([]);
   const [newKey, setNewKey] = useState('');
@@ -38,13 +80,61 @@ export default function AdminCenter() {
 
   // Analytics states
   const [timeSpentData, setTimeSpentData] = useState([]);
+  const [activityLogs, setActivityLogs] = useState([]);
+  const [viewLogs, setViewLogs] = useState([]);
   const [searchQueries, setSearchQueries] = useState([]);
+  const [detailedSearchLogs, setDetailedSearchLogs] = useState([]);
   const [visitedProducts, setVisitedProducts] = useState([]);
   const [clicksAudits, setClicksAudits] = useState([]);
   const [funnelAudits, setFunnelAudits] = useState([]);
   const [aiAudits, setAiAudits] = useState([]);
   const [telemetrySearch, setTelemetrySearch] = useState('');
+  const [selectedUserEmail, setSelectedUserEmail] = useState('');
   const [expandedUsers, setExpandedUsers] = useState({});
+  const [expandedAiUsers, setExpandedAiUsers] = useState({});
+
+  // Date filters
+  const [datePreset, setDatePreset] = useState('7days'); // 'today' | 'yesterday' | '7days' | '30days' | 'all' | 'custom'
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [feedFilters, setFeedFilters] = useState({ views: true, clicks: true, searches: true, ai: true, funnels: true });
+
+  const getDateRangeTimestamps = () => {
+    const now = new Date();
+    let start = null;
+    let end = null;
+
+    if (datePreset === 'today') {
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      start = todayStart.getTime() / 1000;
+      end = now.getTime() / 1000;
+    } else if (datePreset === 'yesterday') {
+      const yesterdayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      const yesterdayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59);
+      start = yesterdayStart.getTime() / 1000;
+      end = yesterdayEnd.getTime() / 1000;
+    } else if (datePreset === '7days') {
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      start = sevenDaysAgo.getTime() / 1000;
+      end = now.getTime() / 1000;
+    } else if (datePreset === '30days') {
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      start = thirtyDaysAgo.getTime() / 1000;
+      end = now.getTime() / 1000;
+    } else if (datePreset === 'custom') {
+      if (customStart) {
+        const sDate = new Date(customStart + 'T00:00:00');
+        start = sDate.getTime() / 1000;
+      }
+      if (customEnd) {
+        const eDate = new Date(customEnd + 'T23:59:59');
+        end = eDate.getTime() / 1000;
+      } else {
+        end = now.getTime() / 1000;
+      }
+    }
+    return { start, end };
+  };
 
   const load = () => api('/admin/users').then(setUsers).catch((e) => setErr(e.message));
   const loadWaitlist = () => api('/admin/users/waitlist').then(setWaitlist).catch(() => {});
@@ -54,11 +144,23 @@ export default function AdminCenter() {
   const loadGlobalKeys = () => api('/admin/keys').then(setGlobalKeys).catch(() => {});
 
   const loadAnalytics = () => {
-    api('/admin/analytics')
+    const { start, end } = getDateRangeTimestamps();
+    let url = '/admin/analytics';
+    const params = [];
+    if (start !== null) params.push(`start_time=${start}`);
+    if (end !== null) params.push(`end_time=${end}`);
+    if (params.length > 0) {
+      url += '?' + params.join('&');
+    }
+
+    api(url)
       .then((data) => {
         if (data) {
           setTimeSpentData(data.time_spent || []);
+          setActivityLogs(data.activity_logs || []);
+          setViewLogs(data.view_logs || []);
           setSearchQueries(data.popular_searches || []);
+          setDetailedSearchLogs(data.search_logs || []);
           setVisitedProducts(data.top_visited || []);
           setClicksAudits(data.action_clicks || []);
           setFunnelAudits(data.funnel_logs || []);
@@ -67,6 +169,10 @@ export default function AdminCenter() {
       })
       .catch(() => {});
   };
+
+  useEffect(() => {
+    loadAnalytics();
+  }, [datePreset, customStart, customEnd]);
   
   useEffect(() => { 
     load(); 
@@ -75,7 +181,6 @@ export default function AdminCenter() {
     loadTools();
     loadIdeas();
     loadGlobalKeys();
-    loadAnalytics();
     
     if (me?.role === 'admin') {
       api('/admin/settings')
@@ -133,6 +238,28 @@ export default function AdminCenter() {
       showTempSuccess('User credits limit updated.');
     } catch (e) {
       alert(`Failed to save credits: ${e.message}`);
+    }
+  };
+
+  const saveKeyLimit = async (keyId) => {
+    try {
+      await api(`/admin/keys/${keyId}/limit`, { method: 'PUT', body: { daily_limit: editingKeyLimitVal } });
+      setEditingKeyLimitId(null);
+      loadGlobalKeys();
+      showTempSuccess('API Key daily limit updated.');
+    } catch (e) {
+      alert(`Failed to save key limit: ${e.message}`);
+    }
+  };
+
+  const resetUserUsage = async (userId) => {
+    if (!window.confirm("Are you sure you want to reset this user's AI credits usage to 0?")) return;
+    try {
+      await api(`/admin/users/${userId}/refresh-usage`, { method: 'PUT' });
+      load();
+      showTempSuccess('User usage metrics refreshed.');
+    } catch (e) {
+      alert(`Failed to reset user usage: ${e.message}`);
     }
   };
 
@@ -330,28 +457,28 @@ export default function AdminCenter() {
       });
     } else if (tab === 'searches') {
       headers = ['Search Query', 'Count'];
-      searchQueries.forEach(row => {
+      filteredSearchQueries.forEach(row => {
         rows.push([row.query, row.count]);
       });
     } else if (tab === 'views') {
       headers = ['Tool Name', 'Views Count'];
-      visitedProducts.forEach(row => {
+      filteredVisitedProducts.forEach(row => {
         rows.push([row.tool_name, row.count]);
       });
     } else if (tab === 'actions') {
       headers = ['User', 'Action Type', 'Tool Name', 'Timestamp'];
-      clicksAudits.forEach(row => {
-        rows.push([row.user_name, row.action_type, row.tool_name, new Date(row.created_at).toLocaleString()]);
+      filteredClicksAudits.forEach(row => {
+        rows.push([row.user_name, row.action_type, row.tool_name, new Date(row.created_at * 1000).toLocaleString()]);
       });
     } else if (tab === 'funnels') {
       headers = ['User', 'Action', 'Draft ID', 'Timestamp'];
-      funnelAudits.forEach(row => {
-        rows.push([row.user_name, row.action, row.draft_id, new Date(row.created_at).toLocaleString()]);
+      filteredFunnelAudits.forEach(row => {
+        rows.push([row.user_name, row.action, row.draft_id, new Date(row.created_at * 1000).toLocaleString()]);
       });
     } else if (tab === 'ai_audit') {
       headers = ['User', 'Prompt', 'Response', 'Provider', 'Latency Seconds', 'Timestamp'];
-      aiAudits.forEach(row => {
-        rows.push([row.user_name, row.prompt, row.response, row.provider, row.latency_seconds?.toFixed(1) || '0.0', new Date(row.created_at).toLocaleString()]);
+      filteredAiAudits.forEach(row => {
+        rows.push([row.user_name, row.prompt, row.response, row.provider, row.latency_seconds?.toFixed(1) || '0.0', new Date(row.created_at * 1000).toLocaleString()]);
       });
     }
 
@@ -377,20 +504,279 @@ export default function AdminCenter() {
   };
 
   const groupedTimeSpent = React.useMemo(() => {
+    const { start, end } = getDateRangeTimestamps();
+    const actualStart = start !== null ? start : 0;
+    const actualEnd = end !== null ? end : (Date.now() / 1000);
+
+    const currentActivity = activityLogs.filter(row => {
+      if (start === null) return true;
+      return row.created_at >= actualStart && row.created_at <= actualEnd;
+    });
+
     const groups = {};
-    timeSpentData.forEach(row => {
+    currentActivity.forEach(row => {
       const name = row.user_name || 'Unknown User';
       if (!groups[name]) {
         groups[name] = { userName: name, sections: [], totalMinutes: 0 };
       }
-      groups[name].sections.push({ page: row.page, minutes: row.minutes });
-      groups[name].totalMinutes += row.minutes;
+      const mins = row.duration_seconds / 60;
+      const existing = groups[name].sections.find(s => s.page === row.page);
+      if (existing) {
+        existing.minutes += mins;
+      } else {
+        groups[name].sections.push({ page: row.page, minutes: mins });
+      }
+      groups[name].totalMinutes += mins;
     });
 
     return Object.values(groups)
       .filter(g => g.userName.toLowerCase().includes(telemetrySearch.toLowerCase()))
       .sort((a, b) => b.totalMinutes - a.totalMinutes);
-  }, [timeSpentData, telemetrySearch]);
+  }, [activityLogs, telemetrySearch, datePreset, customStart, customEnd]);
+
+  const groupedAiAudits = React.useMemo(() => {
+    const { start, end } = getDateRangeTimestamps();
+    const actualStart = start !== null ? start : 0;
+    const actualEnd = end !== null ? end : (Date.now() / 1000);
+
+    const currentAudits = aiAudits.filter(row => {
+      if (start === null) return true;
+      return row.created_at >= actualStart && row.created_at <= actualEnd;
+    });
+
+    const groups = {};
+    currentAudits.forEach(row => {
+      const name = row.user_name || 'Unknown User';
+      if (!groups[name]) {
+        groups[name] = { userName: name, logs: [], count: 0 };
+      }
+      groups[name].logs.push(row);
+      groups[name].count += 1;
+    });
+
+    return Object.values(groups)
+      .filter(g => g.userName.toLowerCase().includes(telemetrySearch.toLowerCase()))
+      .sort((a, b) => b.count - a.count);
+  }, [aiAudits, telemetrySearch, datePreset, customStart, customEnd]);
+
+  const getAnalyticsDashboardData = () => {
+    const { start, end } = getDateRangeTimestamps();
+    const actualEnd = end !== null ? end : (Date.now() / 1000);
+    const actualStart = start !== null ? start : 0;
+    const duration = start !== null ? (actualEnd - actualStart) : (30 * 24 * 60 * 60);
+    const priorStart = actualStart - duration;
+
+    const inCurrentRange = (ts) => {
+      if (start === null) return true;
+      return ts >= actualStart && ts <= actualEnd;
+    };
+
+    const inPriorRange = (ts) => {
+      if (start === null) return false;
+      return ts >= priorStart && ts < actualStart;
+    };
+
+    const currAct = activityLogs.filter(l => inCurrentRange(l.created_at));
+    const priAct = activityLogs.filter(l => inPriorRange(l.created_at));
+
+    const currSearches = detailedSearchLogs.filter(l => inCurrentRange(l.created_at));
+    const priSearches = detailedSearchLogs.filter(l => inPriorRange(l.created_at));
+
+    const currViews = viewLogs.filter(l => inCurrentRange(l.created_at));
+    const priViews = viewLogs.filter(l => inPriorRange(l.created_at));
+
+    const currAi = aiAudits.filter(l => inCurrentRange(l.created_at));
+    const priAi = aiAudits.filter(l => inPriorRange(l.created_at));
+
+    const currClicks = clicksAudits.filter(l => inCurrentRange(l.created_at));
+    const priClicks = clicksAudits.filter(l => inPriorRange(l.created_at));
+
+    const currFunnels = funnelAudits.filter(l => inCurrentRange(l.created_at));
+    const priFunnels = funnelAudits.filter(l => inPriorRange(l.created_at));
+
+    const getActiveUsersCount = (logs) => {
+      const uSet = new Set();
+      logs.forEach(l => {
+        if (l.page.includes('(Active Time)') && l.duration_seconds > 0) {
+          uSet.add(l.user_name || l.user_id);
+        }
+      });
+      return uSet.size;
+    };
+    const cActiveUsers = getActiveUsersCount(currAct);
+    const pActiveUsers = getActiveUsersCount(priAct);
+
+    const cAiReqs = currAi.length;
+    const pAiReqs = priAi.length;
+
+    const cSearchCount = currSearches.length;
+    const pSearchCount = priSearches.length;
+
+    const getAvgSessionMinutes = (logs, activeCount) => {
+      if (activeCount === 0) return 0;
+      let totalSec = 0;
+      logs.forEach(l => {
+        if (l.page.includes('(Active Time)')) {
+          totalSec += l.duration_seconds;
+        }
+      });
+      return (totalSec / 60) / activeCount;
+    };
+    const cAvgSession = getAvgSessionMinutes(currAct, cActiveUsers);
+    const pAvgSession = getAvgSessionMinutes(priAct, pActiveUsers);
+
+    const getPopDelta = (curr, pri) => {
+      if (start === null) return null;
+      if (pri === 0) return curr > 0 ? 100 : 0;
+      return ((curr - pri) / pri) * 100;
+    };
+
+    const activeUsersDelta = getPopDelta(cActiveUsers, pActiveUsers);
+    const aiRequestsDelta = getPopDelta(cAiReqs, pAiReqs);
+    const searchesDelta = getPopDelta(cSearchCount, pSearchCount);
+    const avgSessionDelta = getPopDelta(cAvgSession, pAvgSession);
+
+    const trendPoints = [];
+    if (start !== null) {
+      const days = [];
+      let cDay = new Date(actualStart * 1000);
+      cDay.setHours(0, 0, 0, 0);
+      const limitDay = new Date(actualEnd * 1000);
+
+      while (cDay.getTime() <= limitDay.getTime()) {
+        days.push(new Date(cDay));
+        cDay.setDate(cDay.getDate() + 1);
+      }
+
+      days.forEach(d => {
+        const dayStart = d.getTime() / 1000;
+        const dayEnd = dayStart + 86400;
+
+        const dayAct = currAct.filter(l => l.created_at >= dayStart && l.created_at < dayEnd);
+        const dayAi = currAi.filter(l => l.created_at >= dayStart && l.created_at < dayEnd);
+        const daySearches = currSearches.filter(l => l.created_at >= dayStart && l.created_at < dayEnd);
+
+        const dayUsers = getActiveUsersCount(dayAct);
+        let daySecs = 0;
+        dayAct.forEach(l => {
+          if (l.page.includes('(Active Time)')) {
+            daySecs += l.duration_seconds;
+          }
+        });
+
+        trendPoints.push({
+          dateStr: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+          activeUsers: dayUsers,
+          activeMinutes: Math.round((daySecs / 60) * 10) / 10,
+          aiRequests: dayAi.length,
+          searches: daySearches.length
+        });
+      });
+    }
+
+    return {
+      kpis: {
+        activeUsers: { current: cActiveUsers, delta: activeUsersDelta },
+        aiRequests: { current: cAiReqs, delta: aiRequestsDelta },
+        searches: { current: cSearchCount, delta: searchesDelta },
+        avgSession: { current: Math.round(cAvgSession * 10) / 10, delta: avgSessionDelta }
+      },
+      trendPoints,
+      currAct,
+      currSearches,
+      currViews,
+      currAi,
+      currClicks,
+      currFunnels
+    };
+  };
+
+  const filteredSearchQueries = React.useMemo(() => {
+    const { start, end } = getDateRangeTimestamps();
+    const actualStart = start !== null ? start : 0;
+    const actualEnd = end !== null ? end : (Date.now() / 1000);
+
+    const currentSearches = detailedSearchLogs.filter(row => {
+      if (start === null) return true;
+      return row.created_at >= actualStart && row.created_at <= actualEnd;
+    });
+
+    const counts = {};
+    currentSearches.forEach(row => {
+      const q = String(row.query).toLowerCase().trim();
+      counts[q] = (counts[q] || 0) + 1;
+    });
+
+    return Object.entries(counts)
+      .map(([query, count]) => ({ query, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 50);
+  }, [detailedSearchLogs, datePreset, customStart, customEnd]);
+
+  const filteredVisitedProducts = React.useMemo(() => {
+    const { start, end } = getDateRangeTimestamps();
+    const actualStart = start !== null ? start : 0;
+    const actualEnd = end !== null ? end : (Date.now() / 1000);
+
+    const currentViews = viewLogs.filter(row => {
+      if (start === null) return true;
+      return row.created_at >= actualStart && row.created_at <= actualEnd;
+    });
+
+    const counts = {};
+    currentViews.forEach(row => {
+      const name = row.tool_name || 'Unnamed Product';
+      if (!counts[name]) {
+        counts[name] = { tool_name: name, count: 0, viewers: new Set() };
+      }
+      counts[name].count += 1;
+      if (row.user_name) {
+        counts[name].viewers.add(row.user_name);
+      }
+    });
+
+    return Object.values(counts)
+      .map(item => ({
+        tool_name: item.tool_name,
+        count: item.count,
+        viewers: Array.from(item.viewers)
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 50);
+  }, [viewLogs, datePreset, customStart, customEnd]);
+
+  const filteredClicksAudits = React.useMemo(() => {
+    const { start, end } = getDateRangeTimestamps();
+    const actualStart = start !== null ? start : 0;
+    const actualEnd = end !== null ? end : (Date.now() / 1000);
+
+    return clicksAudits.filter(row => {
+      if (start === null) return true;
+      return row.created_at >= actualStart && row.created_at <= actualEnd;
+    });
+  }, [clicksAudits, datePreset, customStart, customEnd]);
+
+  const filteredFunnelAudits = React.useMemo(() => {
+    const { start, end } = getDateRangeTimestamps();
+    const actualStart = start !== null ? start : 0;
+    const actualEnd = end !== null ? end : (Date.now() / 1000);
+
+    return funnelAudits.filter(row => {
+      if (start === null) return true;
+      return row.created_at >= actualStart && row.created_at <= actualEnd;
+    });
+  }, [funnelAudits, datePreset, customStart, customEnd]);
+
+  const filteredAiAudits = React.useMemo(() => {
+    const { start, end } = getDateRangeTimestamps();
+    const actualStart = start !== null ? start : 0;
+    const actualEnd = end !== null ? end : (Date.now() / 1000);
+
+    return aiAudits.filter(row => {
+      if (start === null) return true;
+      return row.created_at >= actualStart && row.created_at <= actualEnd;
+    });
+  }, [aiAudits, datePreset, customStart, customEnd]);
 
   if (me?.role !== 'admin') return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Admins only.</div>;
 
@@ -418,7 +804,7 @@ export default function AdminCenter() {
       )}
 
       {/* TABS HEADER */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid var(--border-color)', marginBottom: 24, paddingBottom: 0, overflowX: 'auto', whiteSpace: 'nowrap', marginTop: 20 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, borderBottom: '2px solid var(--border-color)', marginBottom: 24, paddingBottom: 0, marginTop: 20 }}>
         {[
           { id: 'users', label: 'Users & Roles' },
           { id: 'routing', label: 'Idea Routing' },
@@ -690,12 +1076,21 @@ export default function AdminCenter() {
                             </button>
                           </>
                         ) : (
-                          <button 
-                            onClick={() => { setEditingCreditsUserId(u.id); setEditingCreditsVal(totalCredits); }}
-                            style={{ padding: '4px 12px', borderRadius: 7, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
-                          >
-                            <Settings size={12} /> Edit Limit
-                          </button>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button 
+                              onClick={() => { setEditingCreditsUserId(u.id); setEditingCreditsVal(totalCredits); }}
+                              style={{ padding: '4px 12px', borderRadius: 7, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+                            >
+                              <Settings size={12} /> Edit Limit
+                            </button>
+                            <button 
+                              onClick={() => resetUserUsage(u.id)}
+                              style={{ padding: '4px 12px', borderRadius: 7, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+                              title="Reset user's AI usage count back to 0"
+                            >
+                              <Activity size={12} /> Reset Usage
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1012,19 +1407,21 @@ export default function AdminCenter() {
 
           {/* Active keys pool table */}
           <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
-            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Active Rotating Keys Pool</h3>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
+              Active Rotating Keys Pool
+            </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {globalKeys.map((k) => (
                 <div key={k.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {k.label} 
+                      {k.label || 'Unnamed Key'} 
                       <span style={{ fontSize: 10.5, padding: '2px 6px', borderRadius: 4, background: 'var(--bg-card)', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>
                         {k.provider}
                       </span>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-                      Key: {k.key_value_masked}
+                      Key: {k.key_value_masked || '••••••••'}
                     </div>
                   </div>
                   
@@ -1060,7 +1457,90 @@ export default function AdminCenter() {
               ))}
               {globalKeys.length === 0 && (
                 <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13.5 }}>
-                  No global keys added to rotating pool yet. The system will fallback to client-supplied keys or default local model.
+                  No global keys added to rotating pool yet.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Daily Usage & Limits per API Key */}
+          <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 4 }}>
+              Daily Usage per API Key
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 12.5, margin: '0 0 16px' }}>
+              Monitor daily requests count against each key's individual daily request limits.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {globalKeys.map((k) => {
+                const dailyLimit = k.daily_limit ?? 1000;
+                const dailyUsage = k.daily_requests_count ?? 0;
+                const pct = dailyLimit > 0 ? Math.min(100, (dailyUsage / dailyLimit) * 100) : 0;
+                const barColor = pct > 90 ? '#ef4444' : pct > 60 ? '#eab308' : '#22c55e';
+
+                return (
+                  <div key={k.id} style={{ padding: '14px 16px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
+                    <div style={{ minWidth: 150 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--text-primary)' }}>
+                        {k.label || 'Unnamed Key'}
+                      </div>
+                      <span style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, background: 'var(--bg-card)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginTop: 4, display: 'inline-block' }}>
+                        {k.provider}
+                      </span>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div style={{ flex: 1, maxWidth: 300 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                          Today: <b style={{ color: 'var(--text-primary)' }}>{dailyUsage}</b>
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Limit: {dailyLimit} reqs</span>
+                      </div>
+                      <div style={{ width: '100%', height: 6, borderRadius: 3, background: 'var(--border-color)', overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: barColor, transition: 'width 0.4s ease' }} />
+                      </div>
+                    </div>
+
+                    {/* Edit Key Daily Limit Controls */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 200, justifyContent: 'flex-end' }}>
+                      {editingKeyLimitId === k.id ? (
+                        <>
+                          <input 
+                            type="number" 
+                            min="1"
+                            value={editingKeyLimitVal}
+                            onChange={(e) => setEditingKeyLimitVal(Number(e.target.value))}
+                            style={{ width: 70, padding: '4px 8px', fontSize: 13, borderRadius: 6, border: '1px solid var(--primary)', background: 'var(--bg-card)', color: 'var(--text-primary)', textAlign: 'center', fontWeight: 700, outline: 'none' }}
+                          />
+                          <button 
+                            onClick={() => saveKeyLimit(k.id)}
+                            style={{ padding: '4px 10px', borderRadius: 6, background: '#22c55e', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600 }}
+                          >
+                            <Check size={13} /> Save
+                          </button>
+                          <button 
+                            onClick={() => setEditingKeyLimitId(null)}
+                            style={{ padding: '4px 8px', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11.5 }}
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button 
+                          onClick={() => { setEditingKeyLimitId(k.id); setEditingKeyLimitVal(dailyLimit); }}
+                          style={{ padding: '4px 12px', borderRadius: 7, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+                        >
+                          <Settings size={12} /> Set Limit
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {globalKeys.length === 0 && (
+                <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                  No global keys available to display usage.
                 </div>
               )}
             </div>
@@ -1069,17 +1549,298 @@ export default function AdminCenter() {
       )}
 
       {/* TAB CONTENT: TELEMETRY & AUDITS */}
-      {adminTab === 'analytics' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* Sub-tabs list */}
-          <div style={{ display: 'flex', gap: 4, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 4, overflowX: 'auto' }}>
+      {adminTab === 'analytics' && (() => {
+        const dashboard = getAnalyticsDashboardData();
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {/* Date Preset & Custom Picker Filter Bar */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)' }}>Date Filters:</span>
+                <div style={{ display: 'flex', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 3, gap: 2 }}>
+                  {[
+                    { id: 'today', label: 'Today' },
+                    { id: 'yesterday', label: 'Yesterday' },
+                    { id: '7days', label: 'Last 7 Days' },
+                    { id: '30days', label: 'Last 30 Days' },
+                    { id: 'all', label: 'All Time' },
+                    { id: 'custom', label: 'Custom Range' }
+                  ].map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => setDatePreset(p.id)}
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: 6,
+                        border: 'none',
+                        background: datePreset === p.id ? 'var(--primary)' : 'transparent',
+                        color: datePreset === p.id ? '#fff' : 'var(--text-secondary)',
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {datePreset === 'custom' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="date"
+                    value={customStart}
+                    onChange={(e) => setCustomStart(e.target.value)}
+                    style={{ padding: '6px 10px', fontSize: 12.5, borderRadius: 6, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', outline: 'none' }}
+                  />
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>to</span>
+                  <input
+                    type="date"
+                    value={customEnd}
+                    onChange={(e) => setCustomEnd(e.target.value)}
+                    style={{ padding: '6px 10px', fontSize: 12.5, borderRadius: 6, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', outline: 'none' }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* KPI Cards Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+              {(() => {
+                const { kpis } = dashboard;
+                const renderDelta = (delta) => {
+                  if (delta === null) return null;
+                  const isUp = delta >= 0;
+                  const absVal = Math.abs(delta).toFixed(1);
+                  const color = isUp ? '#22c55e' : '#ef4444';
+                  return (
+                    <span style={{ fontSize: 11, fontWeight: 700, color, background: isUp ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', padding: '2px 6px', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                      {isUp ? '▲' : '▼'} {absVal}%
+                    </span>
+                  );
+                };
+
+                return (
+                  <>
+                    {/* Active Users */}
+                    <div style={{ padding: '20px 24px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)' }}>Active Users</span>
+                        <Users size={16} style={{ color: 'var(--primary)' }} />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                        <span style={{ fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>{kpis.activeUsers.current}</span>
+                        {renderDelta(kpis.activeUsers.delta)}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Engaged users this period</div>
+                    </div>
+
+                    {/* Avg Active Minutes */}
+                    <div style={{ padding: '20px 24px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)' }}>Avg Active Minutes</span>
+                        <Activity size={16} style={{ color: '#06b6d4' }} />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                        <span style={{ fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>{kpis.avgSession.current}m</span>
+                        {renderDelta(kpis.avgSession.delta)}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Active time per active user</div>
+                    </div>
+
+                    {/* Total AI Requests */}
+                    <div style={{ padding: '20px 24px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)' }}>Total AI Requests</span>
+                        <Bot size={16} style={{ color: '#a855f7' }} />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                        <span style={{ fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>{kpis.aiRequests.current}</span>
+                        {renderDelta(kpis.aiRequests.delta)}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Gemini chat prompts sent</div>
+                    </div>
+
+                    {/* Catalog Searches */}
+                    <div style={{ padding: '20px 24px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)' }}>Catalog Searches</span>
+                        <Search size={16} style={{ color: '#f59e0b' }} />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                        <span style={{ fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>{kpis.searches.current}</span>
+                        {renderDelta(kpis.searches.delta)}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Search queries registered</div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* SVG Trend Chart */}
+            {datePreset !== 'all' && dashboard.trendPoints.length > 1 && (
+              <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                  <div>
+                    <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, margin: 0 }}>Engagement &amp; Usage Trends</h3>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: '2px 0 0' }}>Daily active minutes and AI chat request volume over time</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 16, fontSize: 12, fontWeight: 600 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 12, height: 12, borderRadius: 3, background: '#22c55e', display: 'inline-block' }} />
+                      Active Minutes
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 12, height: 12, borderRadius: 3, background: '#a855f7', display: 'inline-block' }} />
+                      AI Chat Requests
+                    </span>
+                  </div>
+                </div>
+
+                {/* SVG Drawing Canvas */}
+                {(() => {
+                  const pts = dashboard.trendPoints;
+                  const height = 180;
+                  const width = 800;
+
+                  const maxMins = Math.max(...pts.map(p => p.activeMinutes), 1);
+                  const maxAi = Math.max(...pts.map(p => p.aiRequests), 1);
+
+                  const getCoords = (val, max, index) => {
+                    const x = (index / (pts.length - 1)) * (width - 80) + 40;
+                    const y = height - 30 - ((val / max) * (height - 65));
+                    return { x, y };
+                  };
+
+                  let activePath = '';
+                  let activeArea = '';
+                  let aiPath = '';
+                  let aiArea = '';
+
+                  pts.forEach((p, idx) => {
+                    const cAct = getCoords(p.activeMinutes, maxMins, idx);
+                    const cAi = getCoords(p.aiRequests, maxAi, idx);
+
+                    if (idx === 0) {
+                      activePath = `M ${cAct.x} ${cAct.y}`;
+                      activeArea = `M ${cAct.x} ${height - 30} L ${cAct.x} ${cAct.y}`;
+                      aiPath = `M ${cAi.x} ${cAi.y}`;
+                      aiArea = `M ${cAi.x} ${height - 30} L ${cAi.x} ${cAi.y}`;
+                    } else {
+                      activePath += ` L ${cAct.x} ${cAct.y}`;
+                      activeArea += ` L ${cAct.x} ${cAct.y}`;
+                      aiPath += ` L ${cAi.x} ${cAi.y}`;
+                      aiArea += ` L ${cAi.x} ${cAi.y}`;
+                    }
+
+                    if (idx === pts.length - 1) {
+                      activeArea += ` L ${cAct.x} ${height - 30} Z`;
+                      aiArea += ` L ${cAi.x} ${height - 30} Z`;
+                    }
+                  });
+
+                  return (
+                    <div style={{ position: 'relative', width: '100%', overflowX: 'auto' }}>
+                      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} style={{ display: 'block', overflow: 'visible' }}>
+                        <defs>
+                          <linearGradient id="activeGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#22c55e" stopOpacity="0.25" />
+                            <stop offset="100%" stopColor="#22c55e" stopOpacity="0" />
+                          </linearGradient>
+                          <linearGradient id="aiGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#a855f7" stopOpacity="0.25" />
+                            <stop offset="100%" stopColor="#a855f7" stopOpacity="0" />
+                          </linearGradient>
+                        </defs>
+
+                        {[0, 0.25, 0.5, 0.75, 1].map((ratio, gridIdx) => {
+                          const y = height - 30 - ratio * (height - 65);
+                          return (
+                            <line
+                              key={gridIdx}
+                              x1="40"
+                              y1={y}
+                              x2={width - 40}
+                              y2={y}
+                              stroke="var(--border-color)"
+                              strokeWidth="1"
+                              strokeDasharray="4 4"
+                            />
+                          );
+                        })}
+
+                        <path d={activeArea} fill="url(#activeGrad)" />
+                        <path d={aiArea} fill="url(#aiGrad)" />
+
+                        <path d={activePath} fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d={aiPath} fill="none" stroke="#a855f7" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+                        {pts.map((p, idx) => {
+                          const cAct = getCoords(p.activeMinutes, maxMins, idx);
+                          const cAi = getCoords(p.aiRequests, maxAi, idx);
+                          const showLabel = pts.length <= 8 || idx === 0 || idx === pts.length - 1 || idx === Math.floor(pts.length / 2) || (pts.length > 8 && idx % Math.ceil(pts.length / 5) === 0);
+
+                          return (
+                            <g key={idx}>
+                              {showLabel && (
+                                <text
+                                  x={cAct.x}
+                                  y={height - 10}
+                                  textAnchor="middle"
+                                  fill="var(--text-muted)"
+                                  fontSize="10"
+                                  fontWeight="600"
+                                >
+                                  {p.dateStr}
+                                </text>
+                              )}
+
+                              <circle
+                                cx={cAct.x}
+                                cy={cAct.y}
+                                r="4"
+                                fill="#22c55e"
+                                stroke="var(--bg-card)"
+                                strokeWidth="1.5"
+                                style={{ cursor: 'pointer' }}
+                              >
+                                <title>{`${p.dateStr}: ${p.activeMinutes} active mins`}</title>
+                              </circle>
+                              <circle
+                                cx={cAi.x}
+                                cy={cAi.y}
+                                r="4"
+                                fill="#a855f7"
+                                stroke="var(--bg-card)"
+                                strokeWidth="1.5"
+                                style={{ cursor: 'pointer' }}
+                              >
+                                <title>{`${p.dateStr}: ${p.aiRequests} AI requests`}</title>
+                              </circle>
+                            </g>
+                          );
+                        })}
+                      </svg>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Sub-tabs list */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 4 }}>
             {[
+              { id: 'activity_feed', label: 'Live Activity', icon: Zap },
               { id: 'time_spent', label: 'Time Spent', icon: Activity },
               { id: 'searches', label: 'Searches', icon: Search },
               { id: 'views', label: 'Views', icon: Eye },
               { id: 'actions', label: 'Actions', icon: MousePointerClick },
               { id: 'funnels', label: 'Funnels', icon: GitPullRequest },
-              { id: 'ai_audit', label: 'AI Audits', icon: Bot }
+              { id: 'ai_audit', label: 'AI Audits', icon: Bot },
+              { id: 'user_breakdown', label: 'User Breakdown', icon: Users }
             ].map((sub) => {
               const SubIcon = sub.icon;
               const isActive = analyticsSubTab === sub.id;
@@ -1109,6 +1870,187 @@ export default function AdminCenter() {
               );
             })}
           </div>
+
+          {/* Live Activity Feed */}
+          {analyticsSubTab === 'activity_feed' && (
+            <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, margin: 0 }}>System Activity Stream</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: '2px 0 0' }}>Chronological feed of user views, clicks, searches, funnel transitions, and AI queries</p>
+                </div>
+                
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '8px 14px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                    <input
+                      type="checkbox"
+                      checked={feedFilters.views}
+                      onChange={(e) => setFeedFilters(prev => ({ ...prev, views: e.target.checked }))}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    Views
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                    <input
+                      type="checkbox"
+                      checked={feedFilters.clicks}
+                      onChange={(e) => setFeedFilters(prev => ({ ...prev, clicks: e.target.checked }))}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    Clicks
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                    <input
+                      type="checkbox"
+                      checked={feedFilters.searches}
+                      onChange={(e) => setFeedFilters(prev => ({ ...prev, searches: e.target.checked }))}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    Searches
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                    <input
+                      type="checkbox"
+                      checked={feedFilters.ai}
+                      onChange={(e) => setFeedFilters(prev => ({ ...prev, ai: e.target.checked }))}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    AI Queries
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                    <input
+                      type="checkbox"
+                      checked={feedFilters.funnels}
+                      onChange={(e) => setFeedFilters(prev => ({ ...prev, funnels: e.target.checked }))}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    Funnels
+                  </label>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 600, overflowY: 'auto', paddingRight: 4 }}>
+                {(() => {
+                  const items = [];
+
+                  if (feedFilters.views) {
+                    dashboard.currViews.forEach(log => {
+                      items.push({
+                        type: 'view',
+                        icon: Eye,
+                        iconColor: '#06b6d4',
+                        user: log.user_name || 'Anonymous',
+                        desc: `viewed catalog product "${log.tool_name}"`,
+                        ts: log.created_at
+                      });
+                    });
+                  }
+
+                  if (feedFilters.clicks) {
+                    dashboard.currClicks.forEach(log => {
+                      items.push({
+                        type: 'click',
+                        icon: MousePointerClick,
+                        iconColor: '#22c55e',
+                        user: log.user_name || 'Anonymous',
+                        desc: `clicked "${log.action_type}" on product "${log.tool_name}"`,
+                        ts: log.created_at
+                      });
+                    });
+                  }
+
+                  if (feedFilters.searches) {
+                    dashboard.currSearches.forEach(log => {
+                      items.push({
+                        type: 'search',
+                        icon: Search,
+                        iconColor: '#f59e0b',
+                        user: log.user_name || 'Anonymous',
+                        desc: `searched for "${log.query}"`,
+                        ts: log.created_at
+                      });
+                    });
+                  }
+
+                  if (feedFilters.ai) {
+                    dashboard.currAi.forEach(log => {
+                      items.push({
+                        type: 'ai',
+                        icon: Bot,
+                        iconColor: '#a855f7',
+                        user: log.user_name || 'Anonymous',
+                        desc: `queried Gemini AI ("${log.prompt.slice(0, 60)}${log.prompt.length > 60 ? '...' : ''}")`,
+                        ts: log.created_at
+                      });
+                    });
+                  }
+
+                  if (feedFilters.funnels) {
+                    dashboard.currFunnels.forEach(log => {
+                      items.push({
+                        type: 'funnel',
+                        icon: GitPullRequest,
+                        iconColor: '#ef4444',
+                        user: log.user_name || 'Anonymous',
+                        desc: `triggered funnel state "${log.action.toUpperCase()}" for draft ID: ${log.draft_id}`,
+                        ts: log.created_at
+                      });
+                    });
+                  }
+
+                  items.sort((a, b) => b.ts - a.ts);
+
+                  if (items.length === 0) {
+                    return (
+                      <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13.5 }}>
+                        No events match the selected filters or date range.
+                      </div>
+                    );
+                  }
+
+                  const formatRelativeTime = (ts) => {
+                    const elapsed = Math.floor(Date.now() / 1000 - ts);
+                    if (elapsed < 5) return 'just now';
+                    if (elapsed < 60) return `${elapsed}s ago`;
+                    const mins = Math.floor(elapsed / 60);
+                    if (mins < 60) return `${mins}m ago`;
+                    const hours = Math.floor(mins / 60);
+                    if (hours < 24) return `${hours}h ago`;
+                    return new Date(ts * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                  };
+
+                  return items.map((item, idx) => {
+                    const Icon = item.icon;
+                    const initials = String(item.user).split('@')[0].slice(0, 2).toUpperCase();
+                    return (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10, gap: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                          <div style={{ width: 34, height: 34, borderRadius: 17, background: 'var(--bg-card)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', flexShrink: 0 }} title={item.user}>
+                            {initials}
+                          </div>
+                          
+                          <div style={{ fontSize: 13, color: 'var(--text-primary)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                            <span style={{ fontWeight: 700 }}>{item.user}</span>{' '}
+                            <span style={{ color: 'var(--text-secondary)' }}>{item.desc}</span>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: item.iconColor, background: `${item.iconColor}12`, padding: '3px 8px', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <Icon size={11} />
+                            {item.type.toUpperCase()}
+                          </span>
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)', minWidth: 70, textAlign: 'right' }}>
+                            {formatRelativeTime(item.ts)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          )}
 
           {/* Time spent */}
           {analyticsSubTab === 'time_spent' && (
@@ -1182,13 +2124,13 @@ export default function AdminCenter() {
                 <button onClick={() => exportTelemetryToCSV('searches')} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}>Export CSV</button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {searchQueries.map((row, idx) => (
+                {filteredSearchQueries.map((row, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
                     <span style={{ fontSize: 13.5, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>"{row.query}"</span>
                     <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Searched <b>{row.count}</b> times</span>
                   </div>
                 ))}
-                {searchQueries.length === 0 && (
+                {filteredSearchQueries.length === 0 && (
                   <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>No search queries registered.</div>
                 )}
               </div>
@@ -1203,7 +2145,7 @@ export default function AdminCenter() {
                 <button onClick={() => exportTelemetryToCSV('views')} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}>Export CSV</button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {visitedProducts.map((row, idx) => (
+                {filteredVisitedProducts.map((row, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 13.5 }}>{row.tool_name}</div>
@@ -1213,7 +2155,7 @@ export default function AdminCenter() {
                     </span>
                   </div>
                 ))}
-                {visitedProducts.length === 0 && (
+                {filteredVisitedProducts.length === 0 && (
                   <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>No tool views registered.</div>
                 )}
               </div>
@@ -1228,7 +2170,7 @@ export default function AdminCenter() {
                 <button onClick={() => exportTelemetryToCSV('actions')} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}>Export CSV</button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {clicksAudits.map((row, idx) => (
+                {filteredClicksAudits.map((row, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 13.5 }}>{row.user_name}</div>
@@ -1239,7 +2181,7 @@ export default function AdminCenter() {
                     </span>
                   </div>
                 ))}
-                {clicksAudits.length === 0 && (
+                {filteredClicksAudits.length === 0 && (
                   <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>No action clicks registered.</div>
                 )}
               </div>
@@ -1254,7 +2196,7 @@ export default function AdminCenter() {
                 <button onClick={() => exportTelemetryToCSV('funnels')} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}>Export CSV</button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {funnelAudits.map((row, idx) => (
+                {filteredFunnelAudits.map((row, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 13.5 }}>User: {row.user_name}</div>
@@ -1269,7 +2211,7 @@ export default function AdminCenter() {
                     </span>
                   </div>
                 ))}
-                {funnelAudits.length === 0 && (
+                {filteredFunnelAudits.length === 0 && (
                   <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>No funnel submissions registered.</div>
                 )}
               </div>
@@ -1280,36 +2222,287 @@ export default function AdminCenter() {
           {analyticsSubTab === 'ai_audit' && (
             <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, margin: 0 }}>Gemini Prompt &amp; Conversation Audit Logs</h3>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, margin: 0 }}>AI Prompt &amp; Conversation Audit Logs</h3>
                 <button onClick={() => exportTelemetryToCSV('ai_audit')} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}>Export CSV</button>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {aiAudits.map((row, idx) => (
-                  <div key={idx} style={{ padding: 14, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: 6, marginBottom: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{row.user_name}</span>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Timestamp: {new Date(row.created_at).toLocaleString()}</span>
+
+              {/* Search bar */}
+              <div style={{ marginBottom: 16 }}>
+                <input 
+                  type="text" 
+                  value={telemetrySearch} 
+                  onChange={(e) => setTelemetrySearch(e.target.value)} 
+                  placeholder="Filter by user name or email..."
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: 10,
+                    border: '1px solid var(--border-color)', background: 'var(--bg-main)',
+                    color: 'var(--text-primary)', fontSize: 13, outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {groupedAiAudits.map((group, idx) => {
+                  const isExpanded = expandedAiUsers[group.userName];
+                  return (
+                    <div key={idx} style={{ background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden' }}>
+                      <div 
+                        onClick={() => setExpandedAiUsers(prev => ({ ...prev, [group.userName]: !prev[group.userName] }))}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', cursor: 'pointer', userSelect: 'none' }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--text-primary)' }}>{group.userName}</div>
+                          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{group.count} AI interaction{group.count !== 1 ? 's' : ''}</div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{isExpanded ? '▲' : '▼'}</span>
+                        </div>
+                      </div>
+                      
+                      {isExpanded && (
+                        <div style={{ padding: '0 18px 14px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-card)', display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 12 }}>
+                          {group.logs.map((log, sidx) => (
+                            <AiAuditLogRow key={sidx} row={log} />
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div style={{ fontSize: 12.5, color: 'var(--text-primary)', marginBottom: 6 }}>
-                      <b>Prompt:</b> <span style={{ color: 'var(--text-secondary)' }}>{row.prompt}</span>
-                    </div>
-                    <div style={{ fontSize: 12.5, color: 'var(--text-primary)', marginBottom: 6 }}>
-                      <b>Response:</b> <span style={{ color: 'var(--text-secondary)' }}>{row.response?.slice(0, 200)}{row.response?.length > 200 ? '...' : ''}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--text-muted)', paddingTop: 4 }}>
-                      <span>Provider: <code>{row.provider || 'gemini'}</code></span>
-                      <span>Latency: <b>{row.latency_seconds?.toFixed(1) || '0.0'}s</b></span>
-                    </div>
-                  </div>
-                ))}
-                {aiAudits.length === 0 && (
+                  );
+                })}
+                {groupedAiAudits.length === 0 && (
                   <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>No Gemini usage logs found.</div>
                 )}
               </div>
             </div>
           )}
-        </div>
-      )}
+
+          {/* User Breakdown */}
+          {analyticsSubTab === 'user_breakdown' && (
+            <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 24 }}>
+              <div>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>
+                  User Telemetry &amp; Audit Profile
+                </h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: 12.5, margin: 0 }}>
+                  Select a user's email to view a complete breakdown of their activity, time spent, search queries, actions, and AI message history.
+                </p>
+              </div>
+
+              {/* User Selection Dropdown */}
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Select User:</span>
+                <select
+                  value={selectedUserEmail}
+                  onChange={(e) => setSelectedUserEmail(e.target.value)}
+                  style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', outline: 'none', fontSize: 13, minWidth: 260, fontWeight: 600 }}
+                >
+                  <option value="">-- Choose a user --</option>
+                  {users.map(u => (
+                    <option key={u.id} value={u.email}>{u.email} ({u.name})</option>
+                  ))}
+                </select>
+              </div>
+
+              {(() => {
+                if (!selectedUserEmail) {
+                  return (
+                    <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-main)', border: '1px dashed var(--border-color)', borderRadius: 10, fontSize: 13.5 }}>
+                      Please select a user from the dropdown above to generate their detailed profile breakdown.
+                    </div>
+                  );
+                }
+
+                const selectedUser = users.find(u => u.email === selectedUserEmail);
+                if (!selectedUser) return <div style={{ color: 'var(--danger)' }}>User data not found.</div>;
+
+                // 1. Filter metrics
+                const userTimeLogs = timeSpentData.filter(log => log.user_name === selectedUser.email || log.user_name === selectedUser.name);
+                const userSearches = detailedSearchLogs.filter(log => log.user_name === selectedUser.email || log.user_name === selectedUser.name);
+                const userClicks = clicksAudits.filter(log => log.user_name === selectedUser.email || log.user_name === selectedUser.name);
+                const userFunnels = funnelAudits.filter(log => log.user_name === selectedUser.email || log.user_name === selectedUser.name);
+                const userAiAudits = aiAudits.filter(log => log.user_name === selectedUser.email || log.user_name === selectedUser.name);
+                
+                // count ideas & tools owned
+                const userIdeasCount = ideas.filter(i => i.user_id === selectedUser.id).length;
+                const userToolsCount = tools.filter(t => t.owner_id === selectedUser.id).length;
+
+                // compute total active vs idle time
+                let totalActiveMins = 0;
+                let totalIdleMins = 0;
+                userTimeLogs.forEach(log => {
+                  if (log.page.includes('(Active Time)')) totalActiveMins += log.minutes;
+                  if (log.page.includes('(Idle Time)')) totalIdleMins += log.minutes;
+                });
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                    {/* User Overview Card */}
+                    <div style={{ padding: 18, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 12, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>Full Name</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{selectedUser.name}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>Role / Department</div>
+                        <div style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--primary)' }}>{ROLE_LABEL[selectedUser.role] || selectedUser.role}</span>
+                          {selectedUser.department && ` • ${selectedUser.department}`}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>Total Engagement</div>
+                        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+                          <span style={{ color: '#22c55e' }}>{totalActiveMins.toFixed(1)}m active</span>
+                          {' / '}
+                          <span style={{ color: 'var(--text-secondary)' }}>{totalIdleMins.toFixed(1)}m idle</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>Contributions</div>
+                        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                          <b>{userIdeasCount}</b> ideas • <b>{userToolsCount}</b> products
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Left & Right Grid splits */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 20 }}>
+                      {/* Left: Page Breakdown & AI Audits */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                        {/* Page breakdown card */}
+                        <div style={{ padding: 18, border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-main)' }}>
+                          <h4 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <Activity size={15} /> Page Engagement Breakdown
+                          </h4>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {(() => {
+                              // Group time logs by main page
+                              const pageGroups = {};
+                              userTimeLogs.forEach(log => {
+                                const basePage = log.page.replace(' (Active Time)', '').replace(' (Idle Time)', '');
+                                if (!pageGroups[basePage]) {
+                                  pageGroups[basePage] = { active: 0, idle: 0 };
+                                }
+                                if (log.page.includes('(Active Time)')) pageGroups[basePage].active += log.minutes;
+                                if (log.page.includes('(Idle Time)')) pageGroups[basePage].idle += log.minutes;
+                              });
+
+                              const entries = Object.entries(pageGroups).sort((a, b) => (b[1].active + b[1].idle) - (a[1].active + a[1].idle));
+                              if (entries.length === 0) return <div style={{ fontSize: 12.5, color: 'var(--text-muted)', textAlign: 'center', padding: 12 }}>No page activity logged.</div>;
+
+                              return entries.map(([pname, times], idx) => {
+                                const total = times.active + times.idle;
+                                const activePct = total > 0 ? (times.active / total) * 100 : 0;
+                                return (
+                                  <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingBottom: 8, borderBottom: idx < entries.length - 1 ? '1px dashed var(--border-color)' : 'none' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
+                                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{pname}</span>
+                                      <span style={{ color: 'var(--text-secondary)' }}>
+                                        Total: <b>{total.toFixed(1)}m</b> ({times.active.toFixed(1)}m active / {times.idle.toFixed(1)}m idle)
+                                      </span>
+                                    </div>
+                                    <div style={{ width: '100%', height: 8, borderRadius: 4, background: 'var(--border-color)', display: 'flex', overflow: 'hidden' }}>
+                                      <div style={{ width: `${activePct}%`, background: '#22c55e', height: '100%' }} title="Active Time" />
+                                      <div style={{ flex: 1, background: '#94a3b8', height: '100%' }} title="Idle Time" />
+                                    </div>
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
+                        </div>
+
+                        {/* AI audit trail card */}
+                        <div style={{ padding: 18, border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-main)' }}>
+                          <h4 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <Bot size={15} /> AI Conversational History ({userAiAudits.length})
+                          </h4>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 350, overflowY: 'auto', paddingRight: 4 }}>
+                            {userAiAudits.map((log, sidx) => (
+                              <AiAuditLogRow key={sidx} row={log} />
+                            ))}
+                            {userAiAudits.length === 0 && (
+                              <div style={{ fontSize: 12.5, color: 'var(--text-muted)', textAlign: 'center', padding: 20 }}>No AI usage history logged.</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: Searches, Actions, Funnel logs */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                        {/* Searches log card */}
+                        <div style={{ padding: 18, border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-main)' }}>
+                          <h4 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <Search size={14} /> Catalog Search Queries ({userSearches.length})
+                          </h4>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 180, overflowY: 'auto', paddingRight: 4 }}>
+                            {userSearches.map((log, sidx) => (
+                              <div key={sidx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5, padding: '6px 8px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 6 }}>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>"{log.query}"</span>
+                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{new Date(log.created_at * 1000).toLocaleTimeString()}</span>
+                              </div>
+                            ))}
+                            {userSearches.length === 0 && (
+                              <div style={{ fontSize: 12.5, color: 'var(--text-muted)', textAlign: 'center', padding: 12 }}>No searches recorded.</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Action Clicks Card */}
+                        <div style={{ padding: 18, border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-main)' }}>
+                          <h4 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <MousePointerClick size={14} /> Click Actions Trail ({userClicks.length})
+                          </h4>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 180, overflowY: 'auto', paddingRight: 4 }}>
+                            {userClicks.map((log, sidx) => (
+                              <div key={sidx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '6px 8px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 6 }}>
+                                <div style={{ minWidth: 0 }}>
+                                  <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{log.action_type}</span>
+                                  {' on '}
+                                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{log.tool_name}</span>
+                                </div>
+                                <span style={{ fontSize: 10.5, color: 'var(--text-muted)', flexShrink: 0 }}>{new Date(log.created_at).toLocaleTimeString()}</span>
+                              </div>
+                            ))}
+                            {userClicks.length === 0 && (
+                              <div style={{ fontSize: 12.5, color: 'var(--text-muted)', textAlign: 'center', padding: 12 }}>No resource click events logged.</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Funnel submissions card */}
+                        <div style={{ padding: 18, border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-main)' }}>
+                          <h4 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <GitPullRequest size={14} /> Drafts &amp; Submissions Funnel ({userFunnels.length})
+                          </h4>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 180, overflowY: 'auto', paddingRight: 4 }}>
+                            {userFunnels.map((log, sidx) => (
+                              <div key={sidx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '6px 8px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 6 }}>
+                                <div>
+                                  Action: <span style={{ 
+                                    fontWeight: 700, 
+                                    color: log.action === 'submit' ? '#22c55e' : log.action === 'start_draft' ? '#3b82f6' : '#ef4444' 
+                                  }}>{log.action.toUpperCase()}</span>
+                                  <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Draft ID: {log.draft_id}</div>
+                                </div>
+                                <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{new Date(log.created_at).toLocaleTimeString()}</span>
+                              </div>
+                            ))}
+                            {userFunnels.length === 0 && (
+                              <div style={{ fontSize: 12.5, color: 'var(--text-muted)', textAlign: 'center', padding: 12 }}>No submission funnel logs recorded.</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+          </div>
+        );
+      })()}
 
       {/* Database Backup & Restore ALWAYS handy at the bottom of the page */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginTop: 32 }}>

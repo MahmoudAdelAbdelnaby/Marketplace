@@ -60,7 +60,7 @@ class User(SQLModel, table=True):
     ai_provider: str = "local"
     ai_key: str = ""
     ai_model: Optional[str] = "llama3.2"
-    ai_credits: int = Field(default=1000)
+    ai_credits: int = Field(default=5)
     ai_usage: int = Field(default=0)
     created_at: float = Field(default_factory=lambda: time.time())
 
@@ -116,6 +116,9 @@ class GlobalApiKey(SQLModel, table=True):
     label: str = ""
     is_active: bool = True
     requests_count: int = 0
+    daily_requests_count: int = 0
+    daily_limit: int = 1000
+    last_used_date: str = ""
     created_at: float = Field(default_factory=lambda: time.time())
 
 
@@ -1344,20 +1347,10 @@ async def ai_status():
 
 @app.post("/ai/generate")
 async def ai_generate(body: AIGenerateIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
-    # Enforce 5 daily requests limit for normal users (viewers/product owners/etc)
+    # Enforce AI credits limit for normal users (viewers/product owners/etc)
     # Admin accounts are exempt
-    if u.role != "admin":
-        today_start = dt.datetime.combine(dt.date.today(), dt.time.min).timestamp()
-        daily_count = s.exec(
-            select(AIAuditLog)
-            .where(AIAuditLog.user_id == u.id)
-            .where(AIAuditLog.created_at >= today_start)
-        ).all()
-        if len(daily_count) >= 5:
-            raise HTTPException(403, "You have reached your daily limit of 5 AI requests.")
-
-    if u.ai_usage >= u.ai_credits:
-        raise HTTPException(403, f"You have run out of AI credits ({u.ai_usage}/{u.ai_credits}). Please contact your administrator to recharge.")
+    if u.role != "admin" and u.ai_usage >= u.ai_credits:
+        raise HTTPException(403, f"You have run out of AI credits ({u.ai_usage}/{u.ai_credits}). Please contact your administrator to refresh/recharge your usage.")
 
     prompt = body.prompt
     start_time = time.time()
@@ -1415,18 +1408,33 @@ async def ai_generate(body: AIGenerateIn, u: User = Depends(current_user), s: Se
             print(f"Personal key ({provider}) failed, falling back to global keys pool. Error: {e}")
 
     global_keys = s.exec(select(GlobalApiKey).where(GlobalApiKey.is_active == True).order_by(GlobalApiKey.id)).all()
+    today_str = time.strftime("%Y-%m-%d")
     
     for gkey in global_keys:
+        # Reset daily usage count if a new day has arrived
+        if gkey.last_used_date != today_str:
+            gkey.last_used_date = today_str
+            gkey.daily_requests_count = 0
+            s.add(gkey)
+            s.commit()
+            
+        # Check if the daily limit is reached
+        if gkey.daily_requests_count >= getattr(gkey, "daily_limit", 1000):
+            print(f"Global key '{gkey.label}' has reached its daily limit of {gkey.daily_limit}. Skipping.")
+            continue
+            
         try:
             if gkey.provider == "gemini":
                 res = await _gemini(gkey.key_value, prompt)
                 gkey.requests_count += 1
+                gkey.daily_requests_count += 1
                 s.add(gkey)
                 record_usage(prompt, res, "gemini", gkey.label or f"Global Key {gkey.id}", gkey.key_value)
                 return {"text": res, "via": f"global {gkey.label or 'key'}"}
             elif gkey.provider == "openai":
                 res = await _openai(gkey.key_value, prompt)
                 gkey.requests_count += 1
+                gkey.daily_requests_count += 1
                 s.add(gkey)
                 record_usage(prompt, res, "openai", gkey.label or f"Global Key {gkey.id}", gkey.key_value)
                 return {"text": res, "via": f"global {gkey.label or 'key'}"}
@@ -1595,19 +1603,39 @@ def track_submission_funnel(body: TrackFunnelIn, u: User = Depends(current_user)
 
 
 @app.get("/admin/analytics")
-def get_analytics(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
-    activity_rows = s.exec(select(ActivityLog)).all()
+def get_analytics(start_time: Optional[float] = None, end_time: Optional[float] = None, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    query_start = None
+    if start_time is not None:
+        actual_end = end_time if end_time is not None else time.time()
+        duration = actual_end - start_time
+        query_start = start_time - duration
+
+    # 1. Activity Logs
+    stmt_act = select(ActivityLog)
+    if query_start is not None:
+        stmt_act = stmt_act.where(ActivityLog.created_at >= query_start)
+    if end_time is not None:
+        stmt_act = stmt_act.where(ActivityLog.created_at <= end_time)
+    activity_rows = s.exec(stmt_act).all()
+
     time_spent = {}
     for r in activity_rows:
-        key = (r.user_name, r.page)
+        key = (r.user_id, r.user_name, r.page)
         time_spent[key] = time_spent.get(key, 0) + r.duration_seconds
     
     time_spent_aggregated = [
-        {"user_name": k[0], "page": k[1], "minutes": round(v / 60, 1)}
+        {"user_id": k[0], "user_name": k[1], "page": k[2], "minutes": round(v / 60, 1)}
         for k, v in time_spent.items()
     ]
 
-    search_rows = s.exec(select(CatalogSearchLog)).all()
+    # 2. Search Logs
+    stmt_search = select(CatalogSearchLog)
+    if query_start is not None:
+        stmt_search = stmt_search.where(CatalogSearchLog.created_at >= query_start)
+    if end_time is not None:
+        stmt_search = stmt_search.where(CatalogSearchLog.created_at <= end_time)
+    search_rows = s.exec(stmt_search).all()
+
     queries = {}
     for r in search_rows:
         q = r.query.lower().strip()
@@ -1618,41 +1646,92 @@ def get_analytics(u: User = Depends(require("admin")), s: Session = Depends(get_
         reverse=True
     )[:50]
 
-    view_rows = s.exec(select(ProductViewLog)).all()
+    search_logs_detailed = [
+        {
+            "user_id": r.user_id,
+            "user_name": r.user_name,
+            "query": r.query,
+            "created_at": r.created_at
+        }
+        for r in search_rows[:2000]
+    ]
+
+    # 3. View Logs
+    stmt_view = select(ProductViewLog)
+    if query_start is not None:
+        stmt_view = stmt_view.where(ProductViewLog.created_at >= query_start)
+    if end_time is not None:
+        stmt_view = stmt_view.where(ProductViewLog.created_at <= end_time)
+    view_rows = s.exec(stmt_view).all()
+
     views = {}
     for r in view_rows:
-        views[r.tool_name] = views.get(r.tool_name, 0) + 1
+        if r.tool_name not in views:
+            views[r.tool_name] = {"count": 0, "viewers": set()}
+        views[r.tool_name]["count"] += 1
+        if r.user_name:
+            views[r.tool_name]["viewers"].add(r.user_name)
     top_visited = sorted(
-        [{"tool_name": k, "count": v} for k, v in views.items()],
+        [
+            {"tool_name": k, "count": v["count"], "viewers": list(v["viewers"])} 
+            for k, v in views.items()
+        ],
         key=lambda x: x["count"],
         reverse=True
     )[:50]
 
-    click_rows = s.exec(select(ActionClickLog).order_by(ActionClickLog.created_at.desc())).all()
+    # 4. Action Click Logs
+    stmt_click = select(ActionClickLog)
+    if query_start is not None:
+        stmt_click = stmt_click.where(ActionClickLog.created_at >= query_start)
+    if end_time is not None:
+        stmt_click = stmt_click.where(ActionClickLog.created_at <= end_time)
+    stmt_click = stmt_click.order_by(ActionClickLog.created_at.desc())
+    click_rows = s.exec(stmt_click).all()
+
     action_clicks = [
         {
+            "user_id": r.user_id,
             "user_name": r.user_name,
             "action_type": r.action_type,
             "tool_name": r.tool_name,
             "created_at": r.created_at
         }
-        for r in click_rows[:100]
+        for r in click_rows[:2000]
     ]
 
-    funnel_rows = s.exec(select(SubmissionFunnelLog).order_by(SubmissionFunnelLog.created_at.desc())).all()
+    # 5. Funnel Logs
+    stmt_funnel = select(SubmissionFunnelLog)
+    if query_start is not None:
+        stmt_funnel = stmt_funnel.where(SubmissionFunnelLog.created_at >= query_start)
+    if end_time is not None:
+        stmt_funnel = stmt_funnel.where(SubmissionFunnelLog.created_at <= end_time)
+    stmt_funnel = stmt_funnel.order_by(SubmissionFunnelLog.created_at.desc())
+    funnel_rows = s.exec(stmt_funnel).all()
+
     funnel_logs = [
         {
+            "user_id": r.user_id,
             "user_name": r.user_name,
             "action": r.action,
             "draft_id": r.draft_id,
             "created_at": r.created_at
         }
-        for r in funnel_rows[:100]
+        for r in funnel_rows[:2000]
     ]
 
-    audit_rows = s.exec(select(AIAuditLog).order_by(AIAuditLog.created_at.desc())).all()
+    # 6. AI Audit Logs
+    stmt_audit = select(AIAuditLog)
+    if query_start is not None:
+        stmt_audit = stmt_audit.where(AIAuditLog.created_at >= query_start)
+    if end_time is not None:
+        stmt_audit = stmt_audit.where(AIAuditLog.created_at <= end_time)
+    stmt_audit = stmt_audit.order_by(AIAuditLog.created_at.desc())
+    audit_rows = s.exec(stmt_audit).all()
+
     ai_audit_logs = [
         {
+            "user_id": r.user_id,
             "user_name": r.user_name,
             "prompt": r.prompt,
             "response": r.response,
@@ -1663,17 +1742,44 @@ def get_analytics(u: User = Depends(require("admin")), s: Session = Depends(get_
             "response_chars": r.response_chars,
             "created_at": r.created_at
         }
-        for r in audit_rows[:100]
+        for r in audit_rows[:2000]
+    ]
+
+    activity_logs = [
+        {
+            "user_id": r.user_id,
+            "user_name": r.user_name,
+            "page": r.page,
+            "duration_seconds": r.duration_seconds,
+            "created_at": r.created_at
+        }
+        for r in activity_rows[:5000]
+    ]
+
+    view_logs = [
+        {
+            "user_id": r.user_id,
+            "user_name": r.user_name,
+            "tool_name": r.tool_name,
+            "created_at": r.created_at
+        }
+        for r in view_rows[:2000]
     ]
 
     return {
         "time_spent": time_spent_aggregated,
         "popular_searches": popular_searches,
+        "search_logs": search_logs_detailed,
         "top_visited": top_visited,
         "action_clicks": action_clicks,
         "funnel_logs": funnel_logs,
-        "ai_audit_logs": ai_audit_logs
+        "ai_audit_logs": ai_audit_logs,
+        "activity_logs": activity_logs,
+        "view_logs": view_logs
     }
+
+
+
 
 
 @app.get("/admin/keys")
@@ -1763,6 +1869,30 @@ def update_user_credits(user_id: int, body: UserCreditsIn, u: User = Depends(req
     return {"ok": True, "ai_credits": target_user.ai_credits}
 
 
+class KeyLimitIn(BaseModel):
+    daily_limit: int
+
+@app.put("/admin/keys/{key_id}/limit")
+def update_key_limit(key_id: int, body: KeyLimitIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    gkey = s.get(GlobalApiKey, key_id)
+    if not gkey:
+        raise HTTPException(404, "API Key not found")
+    gkey.daily_limit = max(0, body.daily_limit)
+    s.add(gkey)
+    s.commit()
+    return {"ok": True, "daily_limit": gkey.daily_limit}
+
+@app.put("/admin/users/{user_id}/refresh-usage")
+def refresh_user_usage(user_id: int, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    target_user = s.get(User, user_id)
+    if not target_user:
+        raise HTTPException(404, "User not found")
+    target_user.ai_usage = 0
+    s.add(target_user)
+    s.commit()
+    return public_user(target_user)
+
+
 # ----------------------------------------------------------------- startup / migrate / seed
 def migrate():
     if "sqlite" not in str(engine.url):
@@ -1796,6 +1926,13 @@ def migrate():
                          ("ai_credits", "INTEGER DEFAULT 5"), ("ai_usage", "INTEGER DEFAULT 0")]:
             if ucols and col not in ucols:
                 conn.exec_driver_sql(f"ALTER TABLE user ADD COLUMN {col} {ddl}")
+
+        gcols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(globalapikey)").fetchall()]
+        for col, ddl in [("daily_requests_count", "INTEGER DEFAULT 0"),
+                         ("daily_limit", "INTEGER DEFAULT 1000"),
+                         ("last_used_date", "VARCHAR DEFAULT ''")]:
+            if gcols and col not in gcols:
+                conn.exec_driver_sql(f"ALTER TABLE globalapikey ADD COLUMN {col} {ddl}")
 
 
 def seed():
