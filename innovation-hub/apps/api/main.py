@@ -114,6 +114,7 @@ class Tool(SQLModel, table=True):
     demo_container_port: Optional[int] = Field(default=None)
     demo_container_build_logs: str = Field(default="", sa_column=Column(TEXT))
     demo_security_report: str = Field(default="", sa_column=Column(TEXT))
+    review_comments: List[dict] = Field(default=[], sa_column=Column(JSON))
     created_at: float = Field(default_factory=lambda: time.time())
 
 
@@ -216,6 +217,7 @@ class Idea(SQLModel, table=True):
     votes: int = 0
     voters: List[int] = Field(default=[], sa_column=Column(JSON))
     notes: List[dict] = Field(default=[], sa_column=Column(JSON))
+    review_comments: List[dict] = Field(default=[], sa_column=Column(JSON))
     voc_id: Optional[int] = None
     team: str = ""
     tool_id: Optional[int] = None
@@ -1051,6 +1053,17 @@ def tool_demo_raw(tool_id: int, s: Session = Depends(get_session)):
         if status == "running" and port:
             from fastapi.responses import RedirectResponse
             return RedirectResponse(url=f"/api/tools/{tool_id}/demo/proxy/")
+        elif status == "sleeping":
+            from container_manager import wake_container
+            if wake_container(tool_id):
+                t.demo_container_status = "running"
+                s.add(t); s.commit()
+                return HTMLResponse(
+                    "<div style='font-family:sans-serif;padding:40px;text-align:center;color:#475569'>"
+                    "<h3>Waking up the demo…</h3><p>It was asleep to save resources. One moment.</p></div>"
+                    "<meta http-equiv='refresh' content='2'>"
+                )
+            return HTMLResponse("<h3>Demo is asleep and failed to wake. Try 'Run AI Audit & Rebuild' in the review center.</h3>")
         elif status == "building":
             return HTMLResponse("<h3>Live demo is currently building. Please wait a few seconds and refresh...</h3>")
         elif status == "build_failed":
@@ -1086,7 +1099,10 @@ async def proxy_container_demo(tool_id: int, path: str, request: Request, s: Ses
         raise HTTPException(404, "Tool not found")
     if getattr(t, "demo_type", "html") != "container" or not getattr(t, "demo_container_port", None):
         raise HTTPException(400, "Container demo is not running")
-        
+
+    from container_manager import touch
+    touch(tool_id)  # keeps the idle-sleep watcher from stopping an in-use demo
+
     target_url = f"http://127.0.0.1:{t.demo_container_port}/{path}"
     
     query_params = dict(request.query_params)
@@ -1212,6 +1228,80 @@ async def trigger_demo_build(tool_id: int, u: User = Depends(current_user), s: S
 
     threading.Thread(target=run_audit_and_build, daemon=True).start()
     return {"ok": True, "detail": "Build pipeline started. Watch the container status and build logs for progress."}
+
+
+REVIEWER_ROLES = ("committee", "approver", "admin")
+
+@app.post("/tools/{tool_id}/review-comments")
+def add_tool_review_comment(tool_id: int, body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    if u.role not in REVIEWER_ROLES:
+        raise HTTPException(403, "Reviewers only")
+    t = s.get(Tool, tool_id)
+    if not t: raise HTTPException(404, "Tool not found")
+    text = (body.get("text") or "").strip()
+    if not text: raise HTTPException(400, "Comment text is required")
+    comments = list(t.review_comments or [])
+    comments.append({"author": u.name or u.email, "text": text, "ts": time.time()})
+    t.review_comments = comments
+    s.add(t); s.commit()
+    return {"ok": True, "review_comments": comments}
+
+
+@app.post("/ideas/{idea_id}/review-comments")
+def add_idea_review_comment(idea_id: int, body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    if u.role not in REVIEWER_ROLES:
+        raise HTTPException(403, "Reviewers only")
+    i = s.get(Idea, idea_id)
+    if not i: raise HTTPException(404, "Idea not found")
+    text = (body.get("text") or "").strip()
+    if not text: raise HTTPException(400, "Comment text is required")
+    comments = list(i.review_comments or [])
+    comments.append({"author": u.name or u.email, "text": text, "ts": time.time()})
+    i.review_comments = comments
+    s.add(i); s.commit()
+    return {"ok": True, "review_comments": comments}
+
+
+@app.get("/review/digest")
+def review_digest(u: User = Depends(current_user), s: Session = Depends(get_session)):
+    """Markdown summary of everything pending review — for sharing with the committee."""
+    if u.role not in REVIEWER_ROLES:
+        raise HTTPException(403, "Reviewers only")
+    tools = s.exec(select(Tool).where(Tool.review_status.in_(["pending", "changes"])).order_by(Tool.created_at)).all()
+    ideas = s.exec(select(Idea).where(Idea.status == "proposed").order_by(Idea.created_at)).all()
+
+    today = dt.date.today().isoformat()
+    lines = [f"# Pending Review Digest — {today}", ""]
+    lines.append(f"**{len(tools)} tool(s)** and **{len(ideas)} idea(s)** awaiting a decision.")
+    lines.append("")
+
+    if tools:
+        lines.append("## Tools")
+        for t in tools:
+            demo = "container demo" if t.demo_type == "container" else ("web demo" if t.demo_type == "url" else ("HTML demo" if t.has_demo else "no demo"))
+            if t.demo_type == "container":
+                demo += f" ({t.demo_container_status})"
+            roi = f"${t.roi:,.0f}/yr" if t.roi else "no ROI claim"
+            age_days = int((time.time() - (t.created_at or time.time())) / 86400)
+            comments = len(t.review_comments or [])
+            lines.append(f"- **{t.name}** ({t.category or 'uncategorized'}) — by {t.owner or 'unknown'}, {roi}, {demo}, "
+                         f"waiting {age_days}d, {comments} reviewer comment(s)"
+                         + (f" — status: {t.review_status}" if t.review_status != "pending" else ""))
+            if t.problem:
+                lines.append(f"  - Problem: {t.problem[:180]}")
+        lines.append("")
+
+    if ideas:
+        lines.append("## Ideas")
+        for i in ideas:
+            age_days = int((time.time() - (i.created_at or time.time())) / 86400)
+            comments = len(i.review_comments or [])
+            lines.append(f"- **{i.name}** — by {i.owner or 'unknown'}, {i.votes} vote(s), waiting {age_days}d, {comments} reviewer comment(s)")
+
+    if not tools and not ideas:
+        lines.append("_Nothing pending. All caught up!_")
+
+    return {"markdown": "\n".join(lines), "tool_count": len(tools), "idea_count": len(ideas)}
 
 
 @app.post("/tools/{tool_id}/vote")
@@ -2223,13 +2313,15 @@ def migrate():
                          ("demo_container_status", "VARCHAR DEFAULT 'stopped'"),
                          ("demo_container_port", "INTEGER DEFAULT NULL"),
                          ("demo_container_build_logs", "TEXT DEFAULT ''"),
-                         ("demo_security_report", "TEXT DEFAULT ''")]:
+                         ("demo_security_report", "TEXT DEFAULT ''"),
+                         ("review_comments", "JSON DEFAULT '[]'")]:
             if tcols and col not in tcols:
                 conn.exec_driver_sql(f"ALTER TABLE tool ADD COLUMN {col} {ddl}")
         icols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(idea)").fetchall()]
         for col, ddl in [("review_note", "VARCHAR DEFAULT ''"), ("decided_by", "VARCHAR DEFAULT ''"),
                          ("votes", "INTEGER DEFAULT 0"), ("voters", "JSON DEFAULT '[]'"),
-                         ("notes", "JSON DEFAULT '[]'")]:
+                         ("notes", "JSON DEFAULT '[]'"),
+                         ("review_comments", "JSON DEFAULT '[]'")]:
             if icols and col not in icols:
                 conn.exec_driver_sql(f"ALTER TABLE idea ADD COLUMN {col} {ddl}")
         
@@ -2296,6 +2388,8 @@ def on_start():
     SQLModel.metadata.create_all(engine)
     migrate()
     seed()
+    from container_manager import start_idle_watcher
+    start_idle_watcher(DB_URL)
 
 
 ACTIVE_PROXY_TARGET = None

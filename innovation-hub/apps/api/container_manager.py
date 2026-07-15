@@ -1,5 +1,6 @@
 import os
 import socket
+import time
 import zipfile
 import tempfile
 import shutil
@@ -8,6 +9,52 @@ import threading
 from typing import Optional
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+# ---- Idle sleep: stop demo containers nobody is viewing -------------------
+LAST_ACCESS = {}
+IDLE_SECONDS = 2 * 3600  # ponytail: fixed 2h idle timeout; promote to a Setting if it ever needs tuning
+
+def touch(tool_id: int):
+    LAST_ACCESS[tool_id] = time.time()
+
+def wake_container(tool_id: int) -> bool:
+    """Restart a sleeping demo container. Fast — image and port mapping are kept."""
+    res = subprocess.run(["docker", "start", f"demo-{tool_id}"], shell=True, capture_output=True, text=True)
+    touch(tool_id)
+    return res.returncode == 0
+
+def _idle_watcher(db_url: str):
+    engine = create_engine(db_url)
+    Session = sessionmaker(bind=engine)
+    while True:
+        time.sleep(600)
+        try:
+            from main import Tool
+            session = Session()
+            running = session.query(Tool).filter(Tool.demo_container_status == "running").all()
+            now = time.time()
+            for t in running:
+                last = LAST_ACCESS.get(t.id)
+                if last is None:
+                    # No access recorded since API start — grant a grace window
+                    LAST_ACCESS[t.id] = now
+                    continue
+                if now - last > IDLE_SECONDS:
+                    subprocess.run(["docker", "stop", f"demo-{t.id}"], shell=True,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    t.demo_container_status = "sleeping"
+                    session.commit()
+            session.close()
+        except Exception as e:
+            print(f"Idle watcher error: {e}")
+
+_watcher_started = False
+def start_idle_watcher(db_url: str):
+    global _watcher_started
+    if _watcher_started:
+        return
+    _watcher_started = True
+    threading.Thread(target=_idle_watcher, args=(db_url,), daemon=True).start()
 
 def find_free_port(start=9000, end=9999) -> int:
     for port in range(start, end + 1):
@@ -126,7 +173,7 @@ def _build_and_run_task(db_url: str, tool_id: int, zip_path: str, dockerfile_con
             "-p", f"127.0.0.1:{host_port}:{container_port}",
             "--memory", "256m",
             "--cpus", "0.5",
-            "--restart", "always",
+            "--restart", "unless-stopped",
             image_name
         ]
         

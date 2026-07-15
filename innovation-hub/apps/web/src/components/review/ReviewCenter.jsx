@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ClipboardCheck, Check, RotateCcw, Ban, Search, Trash2, ChevronDown, ChevronUp, Layers, Wrench, FolderArchive, User, Building, Landmark, DollarSign, Calendar } from 'lucide-react';
+import { ClipboardCheck, Check, RotateCcw, Ban, Search, Trash2, ChevronDown, ChevronUp, Layers, Wrench, FolderArchive, User, Building, Landmark, DollarSign, Calendar, MessageSquare, Copy } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -10,6 +10,17 @@ function ReviewCard({ item, type, onDone, me, archived = false, allIdeas = [], o
   const [showDetails, setShowDetails] = useState(false);
   const [buildError, setBuildError] = useState('');
   const [live, setLive] = useState(null); // polled container status while building
+  const [comment, setComment] = useState('');
+  const [comments, setComments] = useState(item.review_comments || []);
+
+  const postComment = async () => {
+    if (!comment.trim()) return;
+    try {
+      const res = await api(`/${type}/${item.id}/review-comments`, { method: 'POST', body: { text: comment.trim() } });
+      setComments(res.review_comments);
+      setComment('');
+    } catch (e) { alert('Failed to post comment: ' + e.message); }
+  };
 
   const cStatus = live?.demo_container_status ?? item.demo_container_status;
   const cLogs = live?.demo_container_build_logs ?? item.demo_container_build_logs;
@@ -376,10 +387,43 @@ function ReviewCard({ item, type, onDone, me, archived = false, allIdeas = [], o
         </div>
       ) : (
         <>
-          <textarea 
-            value={note} 
-            onChange={(e) => setNote(e.target.value)} 
-            placeholder="Decision note (sent to the submitter)…" 
+          {/* Committee discussion thread */}
+          <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: comments.length ? 8 : 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <MessageSquare size={13} /> Committee Discussion ({comments.length})
+            </div>
+            {comments.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8, maxHeight: 180, overflowY: 'auto' }}>
+                {comments.map((c, i) => (
+                  <div key={i} style={{ fontSize: 12.5, padding: '6px 10px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--primary-text)' }}>{c.author}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 6 }}>
+                      {c.ts ? new Date(c.ts * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                    </span>
+                    <div style={{ marginTop: 2, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>{c.text}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <input
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') postComment(); }}
+                placeholder="Add a note for fellow reviewers (not sent to the submitter)…"
+                style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 12.5 }}
+              />
+              <button type="button" onClick={postComment} disabled={!comment.trim()}
+                style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: 12.5, cursor: 'pointer', opacity: comment.trim() ? 1 : 0.5 }}>
+                Post
+              </button>
+            </div>
+          </div>
+
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Decision note (sent to the submitter)…"
             style={{ marginTop: 12, minHeight: 56, width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)' }} 
           />
           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -426,6 +470,7 @@ export default function ReviewCenter() {
   // Tabs: 'ideas' | 'products' | 'archive'
   const [tab, setTab] = useState('ideas');
   const [search, setSearch] = useState('');
+  const [digestCopied, setDigestCopied] = useState(false);
 
   const load = () => {
     api('/review/tools').then(setTools).catch(() => {});
@@ -502,15 +547,35 @@ export default function ReviewCenter() {
         </button>
       </div>
 
-      {/* Search Row */}
-      <div style={{ position: 'relative', width: '100%', maxWidth: 360, marginBottom: 24 }}>
-        <Search size={14} style={{ position: 'absolute', left: 12, top: 10, color: 'var(--text-muted)' }} />
-        <input 
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder={`Search ${tab} by title...`}
-          style={{ width: '100%', padding: '8px 12px 8px 34px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13 }}
-        />
+      {/* Search Row + Digest */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', width: '100%', maxWidth: 360 }}>
+          <Search size={14} style={{ position: 'absolute', left: 12, top: 10, color: 'var(--text-muted)' }} />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder={`Search ${tab} by title...`}
+            style={{ width: '100%', padding: '8px 12px 8px 34px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13 }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              const res = await api('/review/digest');
+              await navigator.clipboard.writeText(res.markdown);
+              setDigestCopied(true);
+              setTimeout(() => setDigestCopied(false), 2500);
+            } catch (e) { alert('Failed to generate digest: ' + e.message); }
+          }}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8,
+            border: '1px solid var(--border-color)', background: digestCopied ? 'var(--success)' : 'var(--bg-card)',
+            color: digestCopied ? '#fff' : 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer', transition: 'all 0.2s'
+          }}
+        >
+          {digestCopied ? <><Check size={14} /> Copied to clipboard!</> : <><Copy size={14} /> Copy Committee Digest</>}
+        </button>
       </div>
 
       {/* List Area */}

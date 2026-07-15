@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { X, Upload, AlertTriangle, CheckCircle2, Plus, Maximize2, Minimize2 } from 'lucide-react';
+import { X, Upload, AlertTriangle, CheckCircle2, Plus } from 'lucide-react';
 import { useCatalogStore } from '../../store/useCatalogStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { parseQuickAdd, ENTRY_STATUS } from '../../lib/timeline';
@@ -26,7 +26,7 @@ const IMPL = [
   { id: 'not_implemented', label: 'Not yet implemented' },
   { id: 'third_party', label: 'Third-party resell' },
 ];
-const lbl = { fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', display: 'block', textOverflow: 'ellipsis', overflow: 'hidden' };
+const lbl = { fontWeight: 600, fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', display: 'block', textOverflow: 'ellipsis', overflow: 'hidden', marginBottom: 5, letterSpacing: '0.01em' };
 
 export default function ToolForm({ tool, onClose }) {
   const editing = !!tool;
@@ -75,7 +75,7 @@ export default function ToolForm({ tool, onClose }) {
   const [err, setErr] = useState('');
   const [done, setDone] = useState(false);
   const [row, setRow] = useState({ date: '', update: '', status: 'planned' });
-  const [enlargedSection, setEnlargedSection] = useState(null);
+  const [step, setStep] = useState(1);
   const [editNote, setEditNote] = useState('');
   const [showAI, setShowAI] = useState(true);
 
@@ -215,7 +215,7 @@ export default function ToolForm({ tool, onClose }) {
       <div 
         onClick={(e) => e.stopPropagation()} 
         style={{ 
-          width: 'min(1700px, 98%)', 
+          width: 'min(1150px, 98%)',
           background: 'var(--bg-card-solid)', 
           borderRadius: 20, 
           boxShadow: 'var(--shadow-xl)',
@@ -245,51 +245,49 @@ export default function ToolForm({ tool, onClose }) {
           </div>
         </div>
 
-        <div style={{ 
-          display: 'grid', gridTemplateColumns: showAI ? '3.2fr 1fr' : '1fr',
+        <div style={{
+          display: 'grid', gridTemplateColumns: showAI ? 'minmax(0, 1fr) 300px' : '1fr',
           flex: 1, overflow: 'hidden'
         }}>
           {/* Left Panel: Form + Footer */}
           <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* Scrollable Form Area */}
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-              {enlargedSection && (
-                <div style={{ display: 'flex', gap: 8, padding: '12px 24px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-main)', alignItems: 'center', flexShrink: 0 }}>
-                  {[{ id: 1, title: '1. Core Identity' }, { id: 2, title: '2. Value & Impact' }, { id: 3, title: '3. Media & Delivery' }].map(s => (
-                    <button 
-                      key={s.id} 
-                      type="button"
-                      onClick={() => setEnlargedSection(s.id)}
-                      style={{ 
-                        padding: '6px 12px', 
-                        borderRadius: 6, 
-                        border: enlargedSection === s.id ? '1px solid var(--primary)' : '1px solid var(--border-color)',
-                        background: enlargedSection === s.id ? 'var(--secondary)' : 'var(--bg-card)',
-                        color: enlargedSection === s.id ? 'var(--primary)' : 'var(--text-secondary)',
-                        fontWeight: enlargedSection === s.id ? 700 : 600,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {s.title}
-                    </button>
-                  ))}
-                  <button 
-                    type="button" 
-                    onClick={() => setEnlargedSection(null)} 
-                    style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontWeight: 600 }}
-                  >
-                    <Minimize2 size={14} /> Collapse
-                  </button>
-                </div>
-              )}
-              <div style={{ display: enlargedSection ? 'block' : 'grid', gridTemplateColumns: enlargedSection ? '1fr' : 'repeat(3, 1fr)', overflowY: 'auto', flex: 1 }}>
-          {/* Section 1: Core Info & Metadata */}
-          {(!enlargedSection || enlargedSection === 1) && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '24px 24px', background: 'rgba(150, 150, 150, 0.03)', borderRight: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', marginBottom: 8, paddingBottom: 8, overflowX: 'auto' }}>
-              <h3 style={{ fontSize: 17, margin: 0, color: 'var(--text-primary)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>1. Core Identity</h3>
-              {!enlargedSection && <button type="button" onClick={() => setEnlargedSection(1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', flexShrink: 0 }}><Maximize2 size={16} /></button>}
-            </div>
+              {/* Wizard progress header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px 24px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
+                {[{ n: 1, label: 'Core Identity' }, { n: 2, label: 'Value & Impact' }, { n: 3, label: 'Media & Demo' }, { n: 4, label: 'Review' }].map((s, i) => {
+                  const isDone = step > s.n;
+                  const isActive = step === s.n;
+                  return (
+                    <React.Fragment key={s.n}>
+                      {i > 0 && <div style={{ flex: '0 1 56px', height: 2, borderRadius: 1, background: step > i ? 'var(--primary)' : 'var(--border-color)', margin: '0 10px', transition: 'background 0.3s' }} />}
+                      <button
+                        type="button"
+                        onClick={() => setStep(s.n)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 2px' }}
+                      >
+                        <span style={{
+                          width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center',
+                          fontWeight: 700, fontSize: 11.5, flexShrink: 0,
+                          background: isDone || isActive ? 'var(--primary)' : 'transparent',
+                          color: isDone || isActive ? '#fff' : 'var(--text-muted)',
+                          border: isDone || isActive ? 'none' : '1.5px solid var(--border-color)',
+                          transition: 'all 0.2s'
+                        }}>
+                          {isDone ? '✓' : s.n}
+                        </span>
+                        <span style={{ fontSize: 12.5, fontWeight: isActive ? 700 : 500, color: isActive ? 'var(--text-primary)' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>{s.label}</span>
+                      </button>
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+              <div style={{ maxWidth: 720, margin: '0 auto', width: '100%' }}>
+          {/* Step 1: Core Info & Metadata */}
+          {step === 1 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '24px 24px' }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>What is it and who owns it? Just the essentials.</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div><label style={lbl}>Tool Name</label><input autoFocus value={f.name} onChange={set('name')} /></div>
               <div><label style={lbl}>Owner / Submitter</label><input value={f.owner} onChange={set('owner')} /></div>
@@ -304,7 +302,11 @@ export default function ToolForm({ tool, onClose }) {
               <div><label style={lbl}>ROI ($/yr)</label><input type="number" value={f.roi} onChange={set('roi')} placeholder="0" /></div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div><label style={lbl}>Deployed Client Account</label><input value={f.account} onChange={set('account')} placeholder="e.g. Concentrix" /></div>
+              <div><label style={lbl}>Time to Deploy / Reproduce</label><input value={f.time_to_deploy} onChange={set('time_to_deploy')} placeholder="e.g. 2 weeks, 1 month" /></div>
+            </div>
+            <div>
               <div>
                 <label style={lbl}>Custom Card Image (URL or Upload)</label>
                 <div style={{ display: 'flex', gap: 6 }}>
@@ -343,10 +345,6 @@ export default function ToolForm({ tool, onClose }) {
                   )}
                 </div>
               </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div><label style={lbl}>Deployed Client Account</label><input value={f.account} onChange={set('account')} placeholder="e.g. Concentrix" /></div>
-              <div><label style={lbl}>Time to Deploy / Reproduce</label><input value={f.time_to_deploy} onChange={set('time_to_deploy')} placeholder="e.g. 2 weeks, 1 month" /></div>
-            </div>
             </div>
             <div><label style={lbl}>Impact banner</label><input value={f.impact} onChange={set('impact')} placeholder='e.g. "Saved 60 hrs/mo"' /></div>
             <div>
@@ -456,13 +454,10 @@ export default function ToolForm({ tool, onClose }) {
             </div>
           )}
 
-          {/* Section 2: Value & Deliverables */}
-          {(!enlargedSection || enlargedSection === 2) && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '24px 24px', background: 'rgba(150, 150, 150, 0.07)', borderRight: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', marginBottom: 8, paddingBottom: 8, overflowX: 'auto' }}>
-              <h3 style={{ fontSize: 17, margin: 0, color: 'var(--text-primary)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>2. Value & Impact</h3>
-              {!enlargedSection && <button type="button" onClick={() => setEnlargedSection(2)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', flexShrink: 0 }}><Maximize2 size={16} /></button>}
-            </div>
+          {/* Step 2: Value & Deliverables */}
+          {step === 2 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '24px 24px' }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>Why does it matter? Describe the problem and the value it creates.</p>
               <div>
                 <label style={lbl}>Problem it solves</label>
                 <textarea value={f.problem} onChange={set('problem')} style={{ minHeight: 70 }} />
@@ -588,13 +583,10 @@ export default function ToolForm({ tool, onClose }) {
             </div>
           )}
 
-          {/* Section 3: Demo Media & Timeline */}
-          {(!enlargedSection || enlargedSection === 3) && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '24px 24px', background: 'rgba(150, 150, 150, 0.12)', borderRight: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', marginBottom: 8, paddingBottom: 8, overflowX: 'auto' }}>
-              <h3 style={{ fontSize: 17, margin: 0, color: 'var(--text-primary)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>3. Media & Delivery</h3>
-              {!enlargedSection && <button type="button" onClick={() => setEnlargedSection(3)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', flexShrink: 0 }}><Maximize2 size={16} /></button>}
-            </div>
+          {/* Step 3: Demo Media & Timeline */}
+          {step === 3 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '24px 24px' }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>Show it off — a live demo is what gets tools adopted.</p>
               <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: 12 }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Demo media</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -685,15 +677,31 @@ export default function ToolForm({ tool, onClose }) {
               </div>
               <div style={{ marginTop: 8 }}>
                 <label style={lbl}>Live Demo Type</label>
-                <select 
-                  value={f.demo_type || 'html'} 
-                  onChange={(e) => setF({ ...f, demo_type: e.target.value })}
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, outline: 'none', marginBottom: 10 }}
-                >
-                  <option value="html">Single-File HTML Demo (Standard)</option>
-                  <option value="container">Containerized Live Application (ZIP upload)</option>
-                  <option value="url">External Website / URL Link</option>
-                </select>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 12, marginTop: 6 }}>
+                  {[
+                    { id: 'html', icon: '📄', title: 'HTML Demo', desc: 'Single self-contained .html file' },
+                    { id: 'container', icon: '📦', title: 'Live Application', desc: 'Full app as ZIP, runs in a container' },
+                    { id: 'url', icon: '🔗', title: 'External URL', desc: 'Link to an already-hosted demo' },
+                  ].map((opt) => {
+                    const sel = (f.demo_type || 'html') === opt.id;
+                    return (
+                      <div
+                        key={opt.id}
+                        onClick={() => setF({ ...f, demo_type: opt.id })}
+                        style={{
+                          padding: '12px 10px', borderRadius: 10, cursor: 'pointer', textAlign: 'center',
+                          border: sel ? '2px solid var(--primary)' : '2px solid var(--border-color)',
+                          background: sel ? 'var(--secondary)' : 'var(--bg-main)',
+                          transition: 'all 0.15s'
+                        }}
+                      >
+                        <div style={{ fontSize: 20, marginBottom: 4 }}>{opt.icon}</div>
+                        <div style={{ fontWeight: 700, fontSize: 12.5, color: sel ? 'var(--primary)' : 'var(--text-primary)' }}>{opt.title}</div>
+                        <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 3, lineHeight: 1.35 }}>{opt.desc}</div>
+                      </div>
+                    );
+                  })}
+                </div>
 
                 {f.demo_type === 'url' && (
                   <div>
@@ -811,11 +819,63 @@ export default function ToolForm({ tool, onClose }) {
             </div>
           </div>
           )}
+
+          {/* Step 4: Review & Submit */}
+          {step === 4 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '24px 24px' }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>Almost there — double-check everything before submitting.</p>
+
+            {(() => {
+              const issues = [];
+              if (!f.name.trim()) issues.push({ field: 'Tool Name', step: 1 });
+              if (!f.owner.trim()) issues.push({ field: 'Owner / Submitter', step: 1 });
+              if (!f.category) issues.push({ field: 'Category', step: 1 });
+              if (!f.problem.trim()) issues.push({ field: 'Problem it solves', step: 2 });
+              const hasDemo = demoHtml || demoZipBase64 || f.demo_url || (editing && (tool.has_demo || tool.demo_zip_url));
+              if (!hasDemo && !f.video_url) issues.push({ field: 'A demo or video', step: 3 });
+              if (issues.length === 0) return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 10, fontSize: 13, fontWeight: 600, color: '#15803d' }}>
+                  <CheckCircle2 size={16} /> Everything looks complete. Ready to submit!
+                </div>
+              );
+              return (
+                <div style={{ padding: '10px 14px', background: 'rgba(255,132,0,0.08)', border: '1px solid rgba(255,132,0,0.3)', borderRadius: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--warning-text)', marginBottom: 6 }}>
+                    <AlertTriangle size={15} /> Missing details
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {issues.map((iss) => (
+                      <button key={iss.field} type="button" onClick={() => setStep(iss.step)}
+                        style={{ fontSize: 12, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 999, padding: '4px 12px', color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 600 }}>
+                        {iss.field} → Step {iss.step}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 20px', padding: 16, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 12, fontSize: 13 }}>
+              <div><b>Name:</b> {f.name || '—'}</div>
+              <div><b>Owner:</b> {f.owner || '—'}</div>
+              <div><b>Category:</b> {f.category || '—'}</div>
+              <div><b>Maturity:</b> {f.status}</div>
+              <div><b>Section:</b> {IMPL.find(i => i.id === f.implementation_status)?.label}</div>
+              <div><b>ROI:</b> {f.roi ? `$${Number(f.roi).toLocaleString()}/yr` : '—'}</div>
+              <div style={{ gridColumn: '1 / -1' }}><b>Problem:</b> {f.problem ? (f.problem.length > 160 ? f.problem.slice(0, 160) + '…' : f.problem) : '—'}</div>
+              <div><b>Demo:</b> {f.demo_type === 'container' ? (demoZipName || (editing && tool.demo_zip_url ? 'ZIP attached' : 'ZIP missing')) : f.demo_type === 'url' ? (f.demo_url || 'URL missing') : (demoName || (editing && tool.has_demo ? 'HTML attached' : 'HTML missing'))}</div>
+              <div><b>Video:</b> {f.video_url ? '✓' : '—'} &nbsp; <b>Deck:</b> {f.ppt_url ? '✓' : '—'} &nbsp; <b>Stories:</b> {successStories.length}</div>
+              <div><b>Tags:</b> {f.tags || '—'}</div>
+              <div><b>Timeline entries:</b> {f.timelineText ? f.timelineText.split('\n').filter(Boolean).length : 0}</div>
+            </div>
+          </div>
+          )}
+          </div>
           </div>
           </div>
             
-          <div style={{ borderTop: '1px solid var(--border-color)', padding: '16px 32px', display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0, background: 'rgba(150, 150, 150, 0.17)' }}>
-            {editing && (
+          <div style={{ borderTop: '1px solid var(--border-color)', padding: '14px 24px', display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 }}>
+            {editing && step === 4 && (
               <div style={{ width: '100%' }}>
                 <label style={{ ...lbl, display: 'block', marginBottom: 4 }}>Reason for Edit / Change Note</label>
                 <textarea 
@@ -850,20 +910,35 @@ export default function ToolForm({ tool, onClose }) {
                       setSuccessStories([]);
                     }
                   }}
-                  style={{ padding: '12px 20px', borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  style={{ padding: '10px 16px', borderRadius: 10, border: 'none', background: 'transparent', color: 'var(--text-muted)', fontWeight: 600, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}
                 >
                   Clear Draft
                 </button>
               )}
-              <button onClick={submit} disabled={busy} style={{ flex: 1, padding: '12px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, opacity: busy ? 0.6 : 1, cursor: 'pointer' }}>
-                {busy ? 'Saving...' : editing ? 'Save changes' : 'Submit for review'}
-              </button>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 10 }}>
+                {step > 1 && (
+                  <button type="button" onClick={() => setStep(step - 1)}
+                    style={{ padding: '10px 20px', borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 13.5, cursor: 'pointer' }}>
+                    Back
+                  </button>
+                )}
+                {step < 4 ? (
+                  <button type="button" onClick={() => setStep(step + 1)}
+                    style={{ padding: '10px 26px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: 13.5, cursor: 'pointer' }}>
+                    Continue →
+                  </button>
+                ) : (
+                  <button onClick={submit} disabled={busy} style={{ padding: '10px 30px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 700, fontSize: 13.5, opacity: busy ? 0.6 : 1, cursor: 'pointer' }}>
+                    {busy ? 'Saving…' : editing ? 'Save changes' : 'Submit for review ✓'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
           {showAI && (
-            <div style={{ display: 'flex', flexDirection: 'column', background: 'rgba(150, 150, 150, 0.17)', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', borderLeft: '1px solid var(--border-color)', overflow: 'hidden' }}>
               <AICopilotChat inline={true} />
             </div>
           )}
