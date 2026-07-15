@@ -1005,7 +1005,7 @@ export default function AdminCenter() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {roleUsers.map((u) => {
                           const totalCredits = u.ai_credits ?? 5;
-                          const usedCredits = u.ai_usage ?? 0;
+                          const usedCredits = u.daily_usage ?? 0; // daily count — same metric as the user's own header chip
                           const remaining = Math.max(0, totalCredits - usedCredits);
                 const pct = totalCredits > 0 ? (remaining / totalCredits) * 100 : 0;
                 const barColor = pct > 50 ? '#22c55e' : pct > 20 ? '#eab308' : '#ef4444';
@@ -1568,6 +1568,7 @@ export default function AdminCenter() {
             </h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: 12.5, margin: '0 0 16px' }}>
               Monitor daily requests count against each key's individual daily request limits.
+              Only successful calls served by the pool count here — requests served by an admin's personal key or the local model fallback don't touch pool keys (see Telemetry & Audits for every request).
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {globalKeys.map((k) => {

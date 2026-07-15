@@ -1743,10 +1743,18 @@ async def ai_status():
 
 @app.post("/ai/generate")
 async def ai_generate(body: AIGenerateIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
-    # Enforce AI credits limit for normal users (viewers/product owners/etc)
-    # Admin accounts are exempt
-    if u.role != "admin" and u.ai_usage >= u.ai_credits:
-        raise HTTPException(403, f"You have run out of AI credits ({u.ai_usage}/{u.ai_credits}). Please contact your administrator to refresh/recharge your usage.")
+    # Enforce the DAILY AI credit limit for normal users (admins exempt).
+    # Counted from today's audit log so it genuinely resets at midnight —
+    # u.ai_usage stays as a lifetime total for stats only.
+    if u.role != "admin":
+        today_start = dt.datetime.combine(dt.date.today(), dt.time.min).timestamp()
+        used_today = len(s.exec(
+            select(AIAuditLog)
+            .where(AIAuditLog.user_id == u.id)
+            .where(AIAuditLog.created_at >= today_start)
+        ).all())
+        if used_today >= u.ai_credits:
+            raise HTTPException(403, f"You have used all {u.ai_credits} daily AI credits ({used_today}/{u.ai_credits}). They reset at midnight, or ask an admin to raise your limit.")
 
     prompt = body.prompt
     start_time = time.time()
@@ -2182,8 +2190,15 @@ def get_analytics(start_time: Optional[float] = None, end_time: Optional[float] 
 @app.get("/admin/api-keys")
 def get_global_api_keys(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
     keys = s.exec(select(GlobalApiKey).order_by(GlobalApiKey.id)).all()
+    today_str = time.strftime("%Y-%m-%d")
     result = []
     for k in keys:
+        # A new day means the daily counter is stale — reset it here too, not
+        # only in /ai/generate, so the admin view is correct before first use
+        if k.last_used_date != today_str:
+            k.last_used_date = today_str
+            k.daily_requests_count = 0
+            s.add(k); s.commit()
         val = k.key_value
         masked = val[:4] + "..." + val[-4:] if len(val) > 8 else "..."
         result.append({
@@ -2194,6 +2209,9 @@ def get_global_api_keys(u: User = Depends(require("admin")), s: Session = Depend
             "is_active": k.is_active,
             "request_count": k.requests_count,
             "requests_count": k.requests_count,
+            "daily_requests_count": k.daily_requests_count,
+            "daily_limit": k.daily_limit,
+            "last_used_date": k.last_used_date,
             "key_value": val,
             "key_value_masked": masked,
             "created_at": k.created_at
