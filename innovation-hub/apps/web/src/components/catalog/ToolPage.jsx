@@ -491,7 +491,7 @@ function DemoArea({ tool }) {
   }, [redInkActive, reviewerName, tool, updateTool, refreshMarkers]);
 
   useEffect(() => {
-    if (active === 'html' && html) {
+    if ((active === 'html' && html) || active === 'container_demo') {
       setupIframeListeners();
     }
   }, [active, html, redInkActive, reviewerName, tool.notes, setupIframeListeners]);
@@ -602,6 +602,7 @@ function DemoArea({ tool }) {
                 const BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
                 if (active === 'web') window.open(tool.demo_url, '_blank');
                 else if (active === 'html') window.open(`${BASE}/tools/${tool.id}/demo/raw`, '_blank');
+                else if (active === 'container_demo') window.open(`/api/tools/${tool.id}/demo/raw`, '_blank');
                 else if (active === 'video') window.open(tool.video_url, '_blank');
                 else if (active === 'ppt') window.open(`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(tool.ppt_url)}`, '_blank');
               }}
@@ -616,7 +617,7 @@ function DemoArea({ tool }) {
           </div>
         )}
         
-        {active === 'html' && (
+        {(active === 'html' || active === 'container_demo') && (
           <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', alignItems: 'center' }}>
             <button
               onClick={() => setRedInkActive(!redInkActive)}
@@ -703,7 +704,7 @@ function DemoArea({ tool }) {
             id="demoFrame" 
             title="container_demo" 
             sandbox="allow-scripts allow-same-origin allow-forms" 
-            src={`/api/tools/${tool.id}/demo/raw`} 
+            src={`/api/tools/${tool.id}/demo/raw`}
             onLoad={setupIframeListeners} 
             style={{ width: '100%', height: 560, border: 'none' }} 
           />

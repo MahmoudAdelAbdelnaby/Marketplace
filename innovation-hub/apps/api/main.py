@@ -18,6 +18,8 @@ import base64
 import tempfile
 from urllib.parse import urljoin
 import datetime as dt
+import json
+import threading
 from typing import Optional, List
 
 import jwt
@@ -329,6 +331,18 @@ app.add_middleware(
     allow_origin_regex="https?://(localhost|127\\.0\\.0\\.1)(:\\d+)?",
     allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def _unhandled_exception(request: Request, exc: Exception):
+    # Unhandled exceptions bypass CORSMiddleware, so the browser reports an
+    # opaque "Failed to fetch". Return the real error with CORS headers instead.
+    from fastapi.responses import JSONResponse
+    headers = {}
+    origin = request.headers.get("origin")
+    if origin:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"}, headers=headers)
 
 
 def get_session():
@@ -763,10 +777,11 @@ def auto_trigger_container_build_if_needed(tool: Tool, session: Session):
     if getattr(tool, "demo_type", "html") == "container" and getattr(tool, "demo_zip_url", ""):
         status = getattr(tool, "demo_container_status", "stopped")
         if status in ("stopped", "build_failed", "security_flagged"):
+            cfg = get_ai_audit_config(session)
             api_key = get_gemini_api_key(session)
-            if not api_key:
+            if cfg["ai_enabled"] and cfg["provider"] == "gemini" and not api_key:
                 tool.demo_container_status = "build_failed"
-                tool.demo_container_build_logs = "Build cancelled: Gemini API key is not configured."
+                tool.demo_container_build_logs = "Build cancelled: Gemini API key is not configured. Add a key, switch to a local model, or disable the AI audit in Admin settings."
                 session.add(tool); session.commit()
                 return
                 
@@ -786,7 +801,11 @@ def auto_trigger_container_build_if_needed(tool: Tool, session: Session):
                     
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                    audit = loop.run_until_complete(analyze_and_audit_zip_codebase(zip_path, api_key))
+                    audit = loop.run_until_complete(analyze_and_audit_zip_codebase(
+                        zip_path, api_key or "",
+                        ai_enabled=cfg["ai_enabled"], provider=cfg["provider"],
+                        local_url=cfg["local_url"], local_model=cfg["local_model"],
+                    ))
                     loop.close()
                     
                     _update_tool_db_local(tool.id, {"demo_security_report": json.dumps(audit)})
@@ -990,6 +1009,17 @@ def tool_demo(tool_id: int, s: Session = Depends(get_session)):
     return {"demo_html": t.demo_html}
 
 
+def get_ai_audit_config(s: Session) -> dict:
+    """AI audit settings: enabled toggle, provider (gemini | local), local server details."""
+    rows = {r.key: r.value for r in s.exec(select(Setting)).all()}
+    return {
+        "ai_enabled": rows.get("ai_audit_enabled", "true") != "false",
+        "provider": rows.get("ai_audit_provider", "gemini"),
+        "local_url": rows.get("local_model_url", "http://localhost:11434"),
+        "local_model": rows.get("local_model_name", "llama3.2"),
+    }
+
+
 def get_gemini_api_key(s: Session) -> Optional[str]:
     # Check global active gemini key
     key = s.exec(select(GlobalApiKey).where(GlobalApiKey.is_active == True).where(GlobalApiKey.provider == "gemini")).first()
@@ -1007,6 +1037,7 @@ def get_gemini_api_key(s: Session) -> Optional[str]:
 
 
 @app.get("/tools/{tool_id}/demo/raw", response_class=HTMLResponse)
+@app.get("/api/tools/{tool_id}/demo/raw", response_class=HTMLResponse)
 def tool_demo_raw(tool_id: int, s: Session = Depends(get_session)):
     t = s.get(Tool, tool_id)
     if not t:
@@ -1083,9 +1114,18 @@ async def proxy_container_demo(tool_id: int, path: str, request: Request, s: Ses
             for key in list(resp_headers.keys()):
                 if key.lower() in ("x-frame-options", "content-security-policy", "content-length"):
                     resp_headers.pop(key)
-                    
+
+            content = resp.content
+            # Vite/CRA builds reference assets with root-absolute paths (/assets/...).
+            # Rewrite them in HTML so they stay under this proxy prefix.
+            if "text/html" in resp.headers.get("content-type", ""):
+                prefix = f"/api/tools/{tool_id}/demo/proxy"
+                html = content.decode("utf-8", errors="ignore")
+                html = re.sub(r'((?:src|href|action)=")/(?!/)', rf'\1{prefix}/', html)
+                content = html.encode("utf-8")
+
             return Response(
-                content=resp.content,
+                content=content,
                 status_code=resp.status_code,
                 headers=resp_headers
             )
@@ -1102,39 +1142,76 @@ async def trigger_demo_build(tool_id: int, u: User = Depends(current_user), s: S
     if not t.demo_zip_url:
         raise HTTPException(400, "No ZIP file uploaded for containerized demo")
         
+    cfg = get_ai_audit_config(s)
     api_key = get_gemini_api_key(s)
-    if not api_key:
-        raise HTTPException(500, "Gemini API key is not configured. Please add an active Gemini key in the Admin settings.")
-        
+    if cfg["ai_enabled"] and cfg["provider"] == "gemini" and not api_key:
+        raise HTTPException(500, "Gemini API key is not configured. Please add an active Gemini key in the Admin settings, or switch the AI audit to a local model / disable it.")
+
     # Run analyzer
     zip_path = t.demo_zip_url.lstrip("/") # uploads/demo_zip_xxx.zip
     # Support relative path if starts with api/
     if zip_path.startswith("api/"):
         zip_path = zip_path[4:]
-        
-    from analyzer import analyze_and_audit_zip_codebase
-    audit = await analyze_and_audit_zip_codebase(zip_path, api_key)
-    
-    t.demo_security_report = json.dumps(audit)
-    
-    if audit["decision"] == "flag":
-        t.demo_container_status = "security_flagged"
-        s.add(t); s.commit(); s.refresh(t)
-        return {"ok": False, "report": audit, "detail": "Codebase flagged by AI security audit. Build blocked."}
-        
+
+    # Respond immediately and run the audit + build in the background: the
+    # Gemini audit alone can take minutes, and holding the HTTP request open
+    # that long gets the connection dropped ("Failed to fetch").
+    tool_id_val = t.id
+    first_step = "[1/4] Build queued. Starting AI security audit...\n" if cfg["ai_enabled"] else "[1/4] Build queued. AI audit disabled — using heuristic stack detection...\n"
     t.demo_container_status = "building"
-    t.demo_container_build_logs = "Starting build pipeline...\n"
-    s.add(t); s.commit(); s.refresh(t)
-    
-    from container_manager import build_and_run_demo_container
-    build_and_run_demo_container(
-        db_url=DB_URL,
-        tool_id=t.id,
-        zip_path=zip_path,
-        dockerfile_content=audit["dockerfile"],
-        container_port=audit["container_port"]
-    )
-    return {"ok": True, "report": audit, "detail": "AI audit passed. Build started in the background."}
+    t.demo_container_build_logs = first_step
+    s.add(t); s.commit()
+
+    def run_audit_and_build():
+        import asyncio
+        def log_fail(msg):
+            # ponytail: failure history lives in build_logs (appended, capped at 20KB); separate table if it ever needs querying
+            stamp = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            with Session(engine) as bs:
+                bt = bs.get(Tool, tool_id_val)
+                if bt:
+                    bt.demo_container_status = "build_failed"
+                    bt.demo_container_build_logs = (
+                        (bt.demo_container_build_logs or "") + f"\n=== Failure @ {stamp} ===\n{msg}\n"
+                    )[-20000:]
+                    bs.add(bt); bs.commit()
+        try:
+            from analyzer import analyze_and_audit_zip_codebase
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            audit = loop.run_until_complete(analyze_and_audit_zip_codebase(
+                zip_path, api_key or "",
+                ai_enabled=cfg["ai_enabled"], provider=cfg["provider"],
+                local_url=cfg["local_url"], local_model=cfg["local_model"],
+            ))
+            loop.close()
+
+            _update_tool_db_local(tool_id_val, {"demo_security_report": json.dumps(audit)})
+
+            if audit["decision"] == "flag":
+                _update_tool_db_local(tool_id_val, {
+                    "demo_container_status": "security_flagged",
+                    "demo_container_build_logs": f"[2/4] AI audit FLAGGED the codebase. Build blocked.\nReason: {audit['reason']}\n"
+                })
+                return
+
+            _update_tool_db_local(tool_id_val, {
+                "demo_container_build_logs": f"[2/4] AI audit passed ({audit['tech_stack']}). Dockerfile generated.\n[3/4] Starting Docker build...\n"
+            })
+
+            from container_manager import build_and_run_demo_container
+            build_and_run_demo_container(
+                db_url=DB_URL,
+                tool_id=tool_id_val,
+                zip_path=zip_path,
+                dockerfile_content=audit["dockerfile"],
+                container_port=audit["container_port"]
+            )
+        except Exception as e:
+            log_fail(f"[2/4] AI audit failed: {e}")
+
+    threading.Thread(target=run_audit_and_build, daemon=True).start()
+    return {"ok": True, "detail": "Build pipeline started. Watch the container status and build logs for progress."}
 
 
 @app.post("/tools/{tool_id}/vote")

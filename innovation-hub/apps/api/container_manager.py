@@ -47,15 +47,32 @@ def _build_and_run_task(db_url: str, tool_id: int, zip_path: str, dockerfile_con
     })
     
     try:
-        # 1. Extract ZIP
+        # 1. Extract ZIP; descend into a single wrapper folder if the ZIP was
+        # made by zipping the project folder itself (matches analyzer's view)
         with zipfile.ZipFile(zip_path, 'r') as ref:
             ref.extractall(temp_dir)
-            
+        from analyzer import find_project_root
+        build_ctx = find_project_root(temp_dir)
+
         # 2. Write Dockerfile
-        dockerfile_path = os.path.join(temp_dir, "Dockerfile")
+        dockerfile_path = os.path.join(build_ctx, "Dockerfile")
         with open(dockerfile_path, "w", encoding="utf-8") as df:
             df.write(dockerfile_content)
             
+        # Fail fast with a clear message if the Docker daemon isn't running
+        chk = subprocess.run(["docker", "info"], shell=True, capture_output=True, text=True)
+        if chk.returncode != 0:
+            build_logs += (
+                "\nDocker daemon is not reachable — is Docker Desktop running?\n"
+                "Start Docker Desktop, wait for it to say 'Engine running', then click 'Run AI Audit & Rebuild'.\n"
+                f"Details: {(chk.stderr or chk.stdout or '').strip()[-500:]}\n"
+            )
+            _update_tool_db(db_url, tool_id, {
+                "demo_container_status": "build_failed",
+                "demo_container_build_logs": build_logs
+            })
+            return
+
         build_logs += "ZIP file extracted successfully.\nDockerfile generated.\nRunning docker build...\n"
         _update_tool_db(db_url, tool_id, {"demo_container_build_logs": build_logs})
         
@@ -64,7 +81,7 @@ def _build_and_run_task(db_url: str, tool_id: int, zip_path: str, dockerfile_con
         # Execute docker build capturing output line by line
         process = subprocess.Popen(
             ["docker", "build", "-t", image_name, "."],
-            cwd=temp_dir,
+            cwd=build_ctx,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -122,6 +139,9 @@ def _build_and_run_task(db_url: str, tool_id: int, zip_path: str, dockerfile_con
             })
             return
             
+        # Remove dangling images left behind by previous rebuilds of this tag
+        subprocess.run(["docker", "image", "prune", "-f"], shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
         build_logs += f"\nContainer started successfully on local port {host_port}.\n"
         _update_tool_db(db_url, tool_id, {
             "demo_container_status": "running",
