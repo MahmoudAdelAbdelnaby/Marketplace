@@ -27,7 +27,7 @@ from fastapi import FastAPI, Depends, HTTPException, Header, Response, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import Column, JSON, delete
+from sqlalchemy import Column, JSON, delete, TEXT
 from sqlmodel import SQLModel, Field, Session, create_engine, select
 
 SECRET = os.environ.get("HUB_SECRET", "dev-demo-secret-change-me")
@@ -106,6 +106,12 @@ class Tool(SQLModel, table=True):
     time_to_deploy: str = ""
     success_stories: List[dict] = Field(default=[], sa_column=Column(JSON))
     co_owners: List[dict] = Field(default=[], sa_column=Column(JSON))
+    demo_type: str = Field(default="html") # html | container | url
+    demo_zip_url: str = Field(default="")
+    demo_container_status: str = Field(default="stopped") # stopped | building | build_failed | running | security_flagged
+    demo_container_port: Optional[int] = Field(default=None)
+    demo_container_build_logs: str = Field(default="", sa_column=Column(TEXT))
+    demo_security_report: str = Field(default="", sa_column=Column(TEXT))
     created_at: float = Field(default_factory=lambda: time.time())
 
 
@@ -670,8 +676,9 @@ def save_uploaded_file(data_url: str, prefix: str) -> str:
     try:
         os.makedirs("uploads", exist_ok=True)
         file_bytes = base64.b64decode(base64_data)
-        if len(file_bytes) > 5 * 1024 * 1024:
-            raise HTTPException(400, "File size exceeds the 5MB limit.")
+        limit = 50 * 1024 * 1024 if prefix == "demo_zip" else 5 * 1024 * 1024
+        if len(file_bytes) > limit:
+            raise HTTPException(400, f"File size exceeds the {limit // (1024*1024)}MB limit.")
         filename = f"{prefix}_{int(time.time() * 1000)}.{ext}"
         target_path = os.path.join("uploads", filename)
         
@@ -738,6 +745,78 @@ def process_tool_files(body: dict):
         if updated:
             body["success_stories"] = success_stories
 
+    # 7. Handle demo_zip_url
+    demo_zip_url = body.get("demo_zip_url", "")
+    if demo_zip_url and demo_zip_url.startswith("data:"):
+        body["demo_zip_url"] = save_uploaded_file(demo_zip_url, "demo_zip")
+
+
+def _update_tool_db_local(tool_id: int, updates: dict):
+    with Session(engine) as session:
+        t = session.get(Tool, tool_id)
+        if t:
+            for k, v in updates.items():
+                setattr(t, k, v)
+            session.add(t); session.commit()
+
+def auto_trigger_container_build_if_needed(tool: Tool, session: Session):
+    if getattr(tool, "demo_type", "html") == "container" and getattr(tool, "demo_zip_url", ""):
+        status = getattr(tool, "demo_container_status", "stopped")
+        if status in ("stopped", "build_failed", "security_flagged"):
+            api_key = get_gemini_api_key(session)
+            if not api_key:
+                tool.demo_container_status = "build_failed"
+                tool.demo_container_build_logs = "Build cancelled: Gemini API key is not configured."
+                session.add(tool); session.commit()
+                return
+                
+            def run_analysis_and_build():
+                import asyncio
+                import json
+                try:
+                    from analyzer import analyze_and_audit_zip_codebase
+                    zip_path = tool.demo_zip_url.lstrip("/")
+                    if zip_path.startswith("api/"):
+                        zip_path = zip_path[4:]
+                        
+                    _update_tool_db_local(tool.id, {
+                        "demo_container_status": "building",
+                        "demo_container_build_logs": "Analyzing ZIP codebase and running AI security audit...\n"
+                    })
+                    
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    audit = loop.run_until_complete(analyze_and_audit_zip_codebase(zip_path, api_key))
+                    loop.close()
+                    
+                    _update_tool_db_local(tool.id, {"demo_security_report": json.dumps(audit)})
+                    
+                    if audit["decision"] == "flag":
+                        _update_tool_db_local(tool.id, {
+                            "demo_container_status": "security_flagged",
+                            "demo_container_build_logs": f"Codebase flagged by AI security audit: {audit['reason']}"
+                        })
+                        return
+                        
+                    from container_manager import build_and_run_demo_container
+                    build_and_run_demo_container(
+                        db_url=DB_URL,
+                        tool_id=tool.id,
+                        zip_path=zip_path,
+                        dockerfile_content=audit["dockerfile"],
+                        container_port=audit["container_port"]
+                    )
+                except Exception as e:
+                    _update_tool_db_local(tool.id, {
+                        "demo_container_status": "build_failed",
+                        "demo_container_build_logs": f"Audit pipeline failed: {str(e)}"
+                    })
+                    
+            import threading
+            t = threading.Thread(target=run_analysis_and_build)
+            t.daemon = True
+            t.start()
+
 
 @app.post("/tools")
 def create_tool(body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
@@ -745,7 +824,8 @@ def create_tool(body: dict, u: User = Depends(current_user), s: Session = Depend
         
     t = Tool(owner_id=u.id, owner=body.get("owner") or u.name, review_status="pending")
     for k in ("name", "category", "status", "problem", "delivers", "benefits", "impact", "sample", "configs",
-              "implementation_status", "department", "idea_id", "demo_url", "video_url", "ppt_url", "account", "img_url", "achieved_through", "sort_order", "time_to_deploy", "success_stories"):
+              "implementation_status", "department", "idea_id", "demo_url", "video_url", "ppt_url", "account", "img_url", "achieved_through", "sort_order", "time_to_deploy", "success_stories",
+              "demo_type", "demo_zip_url"):
         if k in body:
             setattr(t, k, body[k])
     t.capabilities = body.get("capabilities", []) or []
@@ -754,7 +834,7 @@ def create_tool(body: dict, u: User = Depends(current_user), s: Session = Depend
     t.notes = body.get("notes", []) or []
     t.roi = float(body.get("roi") or 0)
     t.demo_html = body.get("demo_html", "") or ""
-    t.has_demo = bool(t.demo_html or t.demo_url)
+    t.has_demo = bool(t.demo_html or t.demo_url or t.demo_zip_url)
     t.badges = body.get("badges", []) or []
     
     t.edit_history = [{
@@ -766,6 +846,7 @@ def create_tool(body: dict, u: User = Depends(current_user), s: Session = Depend
     }]
     
     s.add(t); s.commit(); s.refresh(t)
+    auto_trigger_container_build_if_needed(t, s)
     return public_tool(t)
 
 
@@ -791,7 +872,8 @@ def update_tool(tool_id: int, body: dict, u: User = Depends(current_user), s: Se
         
     changed = []
     for k in ("name", "category", "status", "problem", "delivers", "benefits", "impact", "owner", "sample", "configs",
-              "implementation_status", "department", "idea_id", "demo_url", "video_url", "ppt_url", "account", "img_url", "featured", "achieved_through", "sort_order", "time_to_deploy", "success_stories"):
+              "implementation_status", "department", "idea_id", "demo_url", "video_url", "ppt_url", "account", "img_url", "featured", "achieved_through", "sort_order", "time_to_deploy", "success_stories",
+              "demo_type", "demo_zip_url"):
         if k in body and body[k] != getattr(t, k):
             changed.append(k)
             
@@ -803,7 +885,8 @@ def update_tool(tool_id: int, body: dict, u: User = Depends(current_user), s: Se
     if "badges" in body and body["badges"] != t.badges: changed.append("badges")
 
     for k in ("name", "category", "status", "problem", "delivers", "benefits", "impact", "owner", "sample", "configs",
-              "implementation_status", "department", "idea_id", "demo_url", "video_url", "ppt_url", "account", "img_url", "featured", "achieved_through", "sort_order", "time_to_deploy", "success_stories"):
+              "implementation_status", "department", "idea_id", "demo_url", "video_url", "ppt_url", "account", "img_url", "featured", "achieved_through", "sort_order", "time_to_deploy", "success_stories",
+              "demo_type", "demo_zip_url"):
         if k in body: setattr(t, k, body[k])
     if "capabilities" in body: t.capabilities = body["capabilities"] or []
     if "tags" in body: t.tags = body["tags"] or []
@@ -813,7 +896,7 @@ def update_tool(tool_id: int, body: dict, u: User = Depends(current_user), s: Se
     if "demo_html" in body: t.demo_html = body["demo_html"] or ""
     if "badges" in body: t.badges = body["badges"] or []
     if "co_owners" in body: t.co_owners = body["co_owners"] or []
-    t.has_demo = bool(t.demo_html or t.demo_url)
+    t.has_demo = bool(t.demo_html or t.demo_url or t.demo_zip_url)
     
     # If the tool is in "changes" or "declined" review status and the owner edits it,
     # it is automatically resubmitted to the review queue (review_status = "pending").
@@ -833,6 +916,7 @@ def update_tool(tool_id: int, body: dict, u: User = Depends(current_user), s: Se
         t.edit_history = history
         
     s.add(t); s.commit(); s.refresh(t)
+    auto_trigger_container_build_if_needed(t, s)
     return public_tool(t)
 
 
@@ -890,6 +974,12 @@ def delete_tool(tool_id: int, u: User = Depends(current_user), s: Session = Depe
     if not t: raise HTTPException(404, "Not found")
     if not is_owner_or_co_owner(t, u) and u.role != "admin":
         raise HTTPException(403, "Only the owner or an admin can delete this tool")
+    if t.demo_type == "container":
+        try:
+            from container_manager import stop_and_remove_demo_container
+            stop_and_remove_demo_container(t.id)
+        except Exception as ex:
+            print("Failed to stop container on tool deletion:", ex)
     s.delete(t); s.commit()
     return {"ok": True}
 
@@ -900,12 +990,151 @@ def tool_demo(tool_id: int, s: Session = Depends(get_session)):
     return {"demo_html": t.demo_html}
 
 
+def get_gemini_api_key(s: Session) -> Optional[str]:
+    # Check global active gemini key
+    key = s.exec(select(GlobalApiKey).where(GlobalApiKey.is_active == True).where(GlobalApiKey.provider == "gemini")).first()
+    if key:
+        return key.key_value
+    # Fallback to any active key
+    key_any = s.exec(select(GlobalApiKey).where(GlobalApiKey.is_active == True)).first()
+    if key_any:
+        return key_any.key_value
+    # Env fallback
+    env_key = os.environ.get("GEMINI_API_KEY")
+    if env_key:
+        return env_key
+    return None
+
+
 @app.get("/tools/{tool_id}/demo/raw", response_class=HTMLResponse)
 def tool_demo_raw(tool_id: int, s: Session = Depends(get_session)):
     t = s.get(Tool, tool_id)
-    if not t or not t.demo_html:
-        return HTMLResponse("<h3>No HTML demo available for this tool.</h3>", status_code=404)
-    return HTMLResponse(content=t.demo_html)
+    if not t:
+        return HTMLResponse("<h3>Tool not found</h3>", status_code=404)
+        
+    import json
+    d_type = getattr(t, "demo_type", "html")
+    if d_type == "container":
+        status = getattr(t, "demo_container_status", "stopped")
+        port = getattr(t, "demo_container_port", None)
+        if status == "running" and port:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url=f"/api/tools/{tool_id}/demo/proxy/")
+        elif status == "building":
+            return HTMLResponse("<h3>Live demo is currently building. Please wait a few seconds and refresh...</h3>")
+        elif status == "build_failed":
+            logs = getattr(t, "demo_container_build_logs", "")
+            return HTMLResponse(f"<h3>Build failed.</h3><pre style='background:#f4f4f5;padding:12px;border:1px solid #e4e4e7;border-radius:6px;overflow:auto;max-height:400px;'>{logs}</pre>")
+        elif status == "security_flagged":
+            report_str = getattr(t, "demo_security_report", "")
+            try:
+                report = json.loads(report_str)
+                reason = report.get("reason", "Codebase flagged by AI security check.")
+            except Exception:
+                reason = report_str or "Codebase flagged by AI security check."
+            return HTMLResponse(f"<div style='color:#ef4444;font-weight:bold;margin-bottom:8px;'>Security Flagged:</div><pre style='background:#fef2f2;color:#991b1b;padding:12px;border:1px solid #fee2e2;border-radius:6px;'>{reason}</pre>")
+        else:
+            return HTMLResponse(f"<h3>Live demo status: {status}</h3>")
+            
+    elif d_type == "url":
+        if not t.demo_url:
+            return HTMLResponse("<h3>No URL provided for this live demo.</h3>", status_code=404)
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=t.demo_url)
+        
+    else: # html
+        if not t.demo_html:
+            return HTMLResponse("<h3>No HTML demo available for this tool.</h3>", status_code=404)
+        return HTMLResponse(content=t.demo_html)
+
+
+@app.api_route("/api/tools/{tool_id}/demo/proxy/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+async def proxy_container_demo(tool_id: int, path: str, request: Request, s: Session = Depends(get_session)):
+    t = s.get(Tool, tool_id)
+    if not t:
+        raise HTTPException(404, "Tool not found")
+    if getattr(t, "demo_type", "html") != "container" or not getattr(t, "demo_container_port", None):
+        raise HTTPException(400, "Container demo is not running")
+        
+    target_url = f"http://127.0.0.1:{t.demo_container_port}/{path}"
+    
+    query_params = dict(request.query_params)
+    if query_params:
+        from urllib.parse import urlencode
+        target_url += "?" + urlencode(query_params)
+        
+    body = await request.body()
+    
+    headers = {}
+    for k, v in request.headers.items():
+        if k.lower() not in ("host", "connection", "keep-alive"):
+            headers[k] = v
+            
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+            resp = await client.request(
+                method=request.method,
+                url=target_url,
+                headers=headers,
+                content=body
+            )
+            
+            resp_headers = dict(resp.headers)
+            for key in list(resp_headers.keys()):
+                if key.lower() in ("x-frame-options", "content-security-policy", "content-length"):
+                    resp_headers.pop(key)
+                    
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                headers=resp_headers
+            )
+    except Exception as e:
+        raise HTTPException(502, f"Failed to connect to containerized demo: {e}")
+
+
+@app.post("/tools/{tool_id}/demo/build")
+async def trigger_demo_build(tool_id: int, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    t = s.get(Tool, tool_id)
+    if not t: raise HTTPException(404, "Tool not found")
+    if not is_owner_or_co_owner(t, u) and u.role != "admin":
+        raise HTTPException(403, "Access denied")
+    if not t.demo_zip_url:
+        raise HTTPException(400, "No ZIP file uploaded for containerized demo")
+        
+    api_key = get_gemini_api_key(s)
+    if not api_key:
+        raise HTTPException(500, "Gemini API key is not configured. Please add an active Gemini key in the Admin settings.")
+        
+    # Run analyzer
+    zip_path = t.demo_zip_url.lstrip("/") # uploads/demo_zip_xxx.zip
+    # Support relative path if starts with api/
+    if zip_path.startswith("api/"):
+        zip_path = zip_path[4:]
+        
+    from analyzer import analyze_and_audit_zip_codebase
+    audit = await analyze_and_audit_zip_codebase(zip_path, api_key)
+    
+    t.demo_security_report = json.dumps(audit)
+    
+    if audit["decision"] == "flag":
+        t.demo_container_status = "security_flagged"
+        s.add(t); s.commit(); s.refresh(t)
+        return {"ok": False, "report": audit, "detail": "Codebase flagged by AI security audit. Build blocked."}
+        
+    t.demo_container_status = "building"
+    t.demo_container_build_logs = "Starting build pipeline...\n"
+    s.add(t); s.commit(); s.refresh(t)
+    
+    from container_manager import build_and_run_demo_container
+    build_and_run_demo_container(
+        db_url=DB_URL,
+        tool_id=t.id,
+        zip_path=zip_path,
+        dockerfile_content=audit["dockerfile"],
+        container_port=audit["container_port"]
+    )
+    return {"ok": True, "report": audit, "detail": "AI audit passed. Build started in the background."}
 
 
 @app.post("/tools/{tool_id}/vote")
@@ -1911,7 +2140,13 @@ def migrate():
                          ("badges", "JSON DEFAULT '[]'"), ("featured", "BOOLEAN DEFAULT 0"),
                          ("edit_history", "JSON DEFAULT '[]'"), ("sort_order", "INTEGER DEFAULT 0"),
                          ("time_to_deploy", "VARCHAR DEFAULT ''"), ("success_stories", "JSON DEFAULT '[]'"),
-                         ("co_owners", "JSON DEFAULT '[]'")]:
+                         ("co_owners", "JSON DEFAULT '[]'"),
+                         ("demo_type", "VARCHAR DEFAULT 'html'"),
+                         ("demo_zip_url", "VARCHAR DEFAULT ''"),
+                         ("demo_container_status", "VARCHAR DEFAULT 'stopped'"),
+                         ("demo_container_port", "INTEGER DEFAULT NULL"),
+                         ("demo_container_build_logs", "TEXT DEFAULT ''"),
+                         ("demo_security_report", "TEXT DEFAULT ''")]:
             if tcols and col not in tcols:
                 conn.exec_driver_sql(f"ALTER TABLE tool ADD COLUMN {col} {ddl}")
         icols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(idea)").fetchall()]

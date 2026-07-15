@@ -332,8 +332,13 @@ function DemoArea({ tool }) {
 
   const tabs = useMemo(() => {
     const t = [];
-    if (tool.demo_url) t.push({ id: 'web', label: 'Web demo', icon: Globe });
-    if (tool.hasDemo || tool.demo_html) t.push({ id: 'html', label: 'HTML demo', icon: Code });
+    const dType = tool.demo_type || 'html';
+    if (dType === 'container') {
+      t.push({ id: 'container_demo', label: 'Live Demo', icon: Code });
+    } else {
+      if (tool.demo_url || dType === 'url') t.push({ id: 'web', label: 'Web demo', icon: Globe });
+      if (tool.hasDemo || tool.has_demo || tool.demo_html || dType === 'html') t.push({ id: 'html', label: 'HTML demo', icon: Code });
+    }
     if (tool.video_url) t.push({ id: 'video', label: 'Video', icon: PlayCircle });
     if (tool.ppt_url) t.push({ id: 'ppt', label: 'Deck', icon: Presentation });
     if (tool.success_stories && Array.isArray(tool.success_stories)) {
@@ -408,9 +413,10 @@ function DemoArea({ tool }) {
   const setupIframeListeners = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
-    const win = iframe.contentWindow;
-    const doc = iframe.contentDocument || win?.document;
-    if (!doc || !doc.body) return;
+    try {
+      const win = iframe.contentWindow;
+      const doc = iframe.contentDocument || win?.document;
+      if (!doc || !doc.body) return;
 
     if (doc.body) {
       doc.body.style.cursor = redInkActive ? 'crosshair' : '';
@@ -479,6 +485,9 @@ function DemoArea({ tool }) {
     win.removeEventListener('resize', refreshMarkers);
     win.addEventListener('scroll', refreshMarkers);
     win.addEventListener('resize', refreshMarkers);
+    } catch (e) {
+      console.warn("Could not register annotation iframe listeners:", e);
+    }
   }, [redInkActive, reviewerName, tool, updateTool, refreshMarkers]);
 
   useEffect(() => {
@@ -688,6 +697,17 @@ function DemoArea({ tool }) {
           </div>
         )}
         {active === 'html' && (html ? <iframe ref={iframeRef} id="demoFrame" title="html" sandbox="allow-scripts allow-same-origin" srcDoc={html} onLoad={setupIframeListeners} style={{ width: '100%', height: 560, border: 'none' }} /> : <div style={{ display: 'grid', placeItems: 'center', height: 520, color: 'var(--text-muted)' }}>Loading…</div>)}
+        {active === 'container_demo' && (
+          <iframe 
+            ref={iframeRef} 
+            id="demoFrame" 
+            title="container_demo" 
+            sandbox="allow-scripts allow-same-origin allow-forms" 
+            src={`/api/tools/${tool.id}/demo/raw`} 
+            onLoad={setupIframeListeners} 
+            style={{ width: '100%', height: 560, border: 'none' }} 
+          />
+        )}
         {active === 'video' && (ytEmbed(tool.video_url) ? <iframe title="video" src={ytEmbed(tool.video_url)} allowFullScreen style={{ width: '100%', height: 560, border: 'none' }} /> : <video src={tool.video_url} controls style={{ width: '100%', height: 560, background: '#000' }} />)}
         {active === 'ppt' && renderPPT()}
         {active && active.startsWith('story-') && (

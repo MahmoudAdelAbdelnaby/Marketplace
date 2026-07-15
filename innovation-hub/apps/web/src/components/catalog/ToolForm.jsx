@@ -58,6 +58,8 @@ export default function ToolForm({ tool, onClose }) {
       success_stories: src?.success_stories || [],
       co_owners: Array.isArray(src?.co_owners) ? src.co_owners.map(o => o.email || o.name).join(', ') : '',
       draft_id: src?.draft_id || '',
+      demo_type: src?.demo_type || 'html',
+      demo_zip_url: src?.demo_zip_url || '',
     };
   });
   const [successStories, setSuccessStories] = useState(f.success_stories || []);
@@ -67,6 +69,8 @@ export default function ToolForm({ tool, onClose }) {
   const [newBadgeImg, setNewBadgeImg] = useState('');
   const [demoHtml, setDemoHtml] = useState(null);
   const [demoName, setDemoName] = useState('');
+  const [demoZipBase64, setDemoZipBase64] = useState(null);
+  const [demoZipName, setDemoZipName] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [done, setDone] = useState(false);
@@ -134,6 +138,20 @@ export default function ToolForm({ tool, onClose }) {
     const r = new FileReader(); r.onload = () => { setDemoHtml(String(r.result)); setDemoName(file.name); }; r.readAsText(file);
   };
 
+  const onZipFile = (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      alert('ZIP demo file size exceeds the 50MB limit.');
+      return;
+    }
+    const r = new FileReader();
+    r.onload = () => {
+      setDemoZipBase64(String(r.result));
+      setDemoZipName(file.name);
+    };
+    r.readAsDataURL(file);
+  };
+
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr('');
     if (editing && !editNote.trim()) {
@@ -155,8 +173,10 @@ export default function ToolForm({ tool, onClose }) {
       time_to_deploy: f.time_to_deploy,
       success_stories: f.success_stories,
       co_owners: f.co_owners ? f.co_owners.split(',').map((x) => ({ email: x.trim() })).filter(x => x.email) : [],
+      demo_type: f.demo_type || 'html',
     };
     if (demoHtml !== null) payload.demo_html = demoHtml;
+    if (demoZipBase64 !== null) payload.demo_zip_url = demoZipBase64;
     if (editing) payload.edit_note = editNote;
     try {
       if (editing) { 
@@ -578,7 +598,11 @@ export default function ToolForm({ tool, onClose }) {
               <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: 12 }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Demo media</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div><label style={lbl}>Web demo (URL)</label><input value={f.demo_url} onChange={set('demo_url')} placeholder="https://your-app.example.com" /></div>
+                {f.demo_type === 'url' ? (
+                  <div><label style={lbl}>Web demo (URL)</label><input value={f.demo_url} onChange={set('demo_url')} placeholder="https://your-app.example.com" /></div>
+                ) : (
+                  <div><label style={lbl}>Live Demo Mode</label><div style={{ fontSize: 12.5, color: 'var(--text-secondary)', paddingTop: 8, lineHeight: 1.4 }}>Configuring {f.demo_type === 'html' ? 'HTML file upload' : 'Docker ZIP upload'} below</div></div>
+                )}
                 <div>
                   <label style={lbl}>Video (URL or Upload, max 5MB)</label>
                   <div style={{ display: 'flex', gap: 6 }}>
@@ -660,30 +684,77 @@ export default function ToolForm({ tool, onClose }) {
                 </div>
               </div>
               <div style={{ marginTop: 8 }}>
-                <label style={lbl}>Or upload an HTML demo</label>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, border: '1.5px dashed var(--border-color)', borderRadius: 10, padding: '10px 12px', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 13 }}>
-                    <Upload size={14} />{demoName ? `✓ ${demoName}` : editing && tool.has_demo ? 'HTML demo attached — choose to replace' : 'Upload self-contained .html demo'}
-                    <input type="file" accept=".html,text/html" onChange={onFile} style={{ display: 'none' }} />
-                  </label>
-                  {(demoHtml !== null || (editing && tool.has_demo)) && (
-                    <button 
-                      type="button" 
-                      onClick={() => {
-                        setDemoHtml('');
-                        setDemoName('');
-                        if (editing) {
-                          // set has_demo to false in UI model representation
-                          tool.has_demo = false;
-                        }
-                      }}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid #fee2e2', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: '#fee2e2', color: '#ef4444' }}
-                      title="Clear HTML Demo"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
+                <label style={lbl}>Live Demo Type</label>
+                <select 
+                  value={f.demo_type || 'html'} 
+                  onChange={(e) => setF({ ...f, demo_type: e.target.value })}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, outline: 'none', marginBottom: 10 }}
+                >
+                  <option value="html">Single-File HTML Demo (Standard)</option>
+                  <option value="container">Containerized Live Application (ZIP upload)</option>
+                  <option value="url">External Website / URL Link</option>
+                </select>
+
+                {f.demo_type === 'url' && (
+                  <div>
+                    <label style={lbl}>Web demo (URL)</label>
+                    <input value={f.demo_url} onChange={set('demo_url')} placeholder="https://your-app.example.com" />
+                  </div>
+                )}
+
+                {f.demo_type === 'html' && (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, border: '1.5px dashed var(--border-color)', borderRadius: 10, padding: '10px 12px', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 13 }}>
+                      <Upload size={14} />{demoName ? `✓ ${demoName}` : editing && tool.demo_type === 'html' && tool.has_demo ? 'HTML demo attached — choose to replace' : 'Upload self-contained .html demo'}
+                      <input type="file" accept=".html,text/html" onChange={onFile} style={{ display: 'none' }} />
+                    </label>
+                    {(demoHtml !== null || (editing && tool.demo_type === 'html' && tool.has_demo)) && (
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          setDemoHtml('');
+                          setDemoName('');
+                          if (editing) tool.has_demo = false;
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid #fee2e2', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: '#fee2e2', color: '#ef4444' }}
+                        title="Clear HTML Demo"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {f.demo_type === 'container' && (
+                  <div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, border: '1.5px dashed var(--border-color)', borderRadius: 10, padding: '10px 12px', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 13 }}>
+                        <Upload size={14} />{demoZipName ? `✓ ${demoZipName}` : editing && tool.demo_type === 'container' && tool.demo_zip_url ? 'ZIP codebase attached — choose to replace' : 'Upload application codebase (.zip)'}
+                        <input type="file" accept=".zip" onChange={onZipFile} style={{ display: 'none' }} />
+                      </label>
+                      {(demoZipBase64 !== null || (editing && tool.demo_type === 'container' && tool.demo_zip_url)) && (
+                        <button 
+                          type="button" 
+                          onClick={() => {
+                            setDemoZipBase64('');
+                            setDemoZipName('');
+                            if (editing) {
+                              tool.demo_zip_url = '';
+                              tool.has_demo = false;
+                            }
+                          }}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 38, border: '1px solid #fee2e2', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: '#fee2e2', color: '#ef4444' }}
+                          title="Clear Codebase ZIP"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.45 }}>
+                      💡 <b>Tip:</b> Make sure to exclude large folders (like <code>node_modules</code> or Python <code>.venv</code>) before zipping your project.
+                    </div>
+                  </div>
+                )}
               </div>
               <div style={{ marginTop: 12, borderTop: '1px solid var(--border-color)', paddingTop: 12 }}>
                 <label style={lbl}>Success Stories (Multiple PDFs/PPTs)</label>
