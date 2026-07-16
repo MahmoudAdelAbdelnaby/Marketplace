@@ -353,7 +353,7 @@ export default function ManageView() {
                   </div>
                 </div>
                 <button 
-                  onClick={() => nav(`/canvas`)}
+                  onClick={() => nav(`/ideas?idea_id=${i.id}`)}
                   style={getBtnStyle(`idea-${i.id}`, true)}
                   onMouseEnter={() => setHoveredBtnId(`idea-${i.id}`)}
                   onMouseLeave={() => setHoveredBtnId(null)}

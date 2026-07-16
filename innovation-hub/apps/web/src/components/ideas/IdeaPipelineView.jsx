@@ -89,6 +89,17 @@ export default function IdeaPipelineView() {
   }, []);
 
   useEffect(() => {
+    // Deep-link from Manage view: /ideas?idea_id=N opens that idea in the canvas
+    const ideaId = searchParams.get('idea_id');
+    if (ideaId) {
+      api(`/ideas`).then((all) => {
+        const idea = all.find((i) => i.id === parseInt(ideaId));
+        if (idea) {
+          loadBackendIdea(idea);
+          setActiveTab('canvas');
+        }
+      }).catch(() => {});
+    }
     const vocId = searchParams.get('voc_id');
     if (vocId) {
       setActiveTab('canvas');
