@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ClipboardCheck, Check, RotateCcw, Ban, Search, Trash2, ChevronDown, ChevronUp, Layers, Wrench, FolderArchive, User, Building, Landmark, DollarSign, Calendar } from 'lucide-react';
+import { ClipboardCheck, Check, RotateCcw, Ban, Search, Trash2, ChevronDown, ChevronUp, Layers, Wrench, FolderArchive, User, Building, Landmark, DollarSign, Calendar, MessageSquare, Copy } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -8,6 +8,31 @@ function ReviewCard({ item, type, onDone, me, archived = false, allIdeas = [], o
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [buildError, setBuildError] = useState('');
+  const [live, setLive] = useState(null); // polled container status while building
+  const [comment, setComment] = useState('');
+  const [comments, setComments] = useState(item.review_comments || []);
+
+  const postComment = async () => {
+    if (!comment.trim()) return;
+    try {
+      const res = await api(`/${type}/${item.id}/review-comments`, { method: 'POST', body: { text: comment.trim() } });
+      setComments(res.review_comments);
+      setComment('');
+    } catch (e) { alert('Failed to post comment: ' + e.message); }
+  };
+
+  const cStatus = live?.demo_container_status ?? item.demo_container_status;
+  const cLogs = live?.demo_container_build_logs ?? item.demo_container_build_logs;
+  const cPort = live?.demo_container_port ?? item.demo_container_port;
+
+  useEffect(() => {
+    if (cStatus !== 'building') return;
+    const id = setInterval(async () => {
+      try { setLive(await api(`/tools/${item.id}`)); } catch { /* keep polling */ }
+    }, 3000);
+    return () => clearInterval(id);
+  }, [cStatus, item.id]);
 
   const act = async (decision) => {
     setBusy(true);
@@ -247,22 +272,63 @@ function ReviewCard({ item, type, onDone, me, archived = false, allIdeas = [], o
               }
             })()}
 
+            {(() => {
+              // Infer pipeline step from status + log content
+              const logs = cLogs || '';
+              const inDockerPhase = /extraction|docker build/i.test(logs);
+              let current, failed = false;
+              if (cStatus === 'running') { current = 3; }
+              else if (cStatus === 'building') { current = inDockerPhase ? 2 : 1; }
+              else if (cStatus === 'security_flagged') { current = 1; failed = true; }
+              else if (cStatus === 'build_failed') { current = inDockerPhase ? 2 : 1; failed = true; }
+              else { current = 0; }
+              const steps = ['Queued', 'AI Security Audit', 'Docker Build & Run', 'Live'];
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }`}</style>
+                  {steps.map((label, i) => {
+                    const done = i < current || (i === current && cStatus === 'running');
+                    const active = i === current && cStatus === 'building';
+                    const isFail = i === current && failed;
+                    const color = isFail ? '#ef4444' : done ? '#22c55e' : active ? '#3b82f6' : 'var(--text-muted)';
+                    return (
+                      <React.Fragment key={label}>
+                        {i > 0 && <div style={{ width: 18, height: 2, background: i <= current ? color : 'var(--border-color)', borderRadius: 1 }} />}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <span style={{
+                            width: 10, height: 10, borderRadius: '50%', display: 'inline-block',
+                            background: (done || isFail) ? color : 'transparent',
+                            border: `2px solid ${color}`,
+                            animation: active ? 'pulse 1.2s ease-in-out infinite' : 'none',
+                          }} />
+                          <span style={{ fontSize: 11.5, fontWeight: i === current ? 700 : 500, color }}>
+                            {label}{isFail ? ' ✕' : ''}
+                          </span>
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
               <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
-                Container Status: <span style={{ fontWeight: 700, color: item.demo_container_status === 'running' ? '#22c55e' : item.demo_container_status === 'building' ? '#3b82f6' : '#ef4444' }}>{item.demo_container_status?.toUpperCase()}</span>
-                {item.demo_container_port ? ` (Port: ${item.demo_container_port})` : ''}
+                Container Status: <span style={{ fontWeight: 700, color: cStatus === 'running' ? '#22c55e' : cStatus === 'building' ? '#3b82f6' : '#ef4444' }}>{cStatus?.toUpperCase()}</span>
+                {cPort ? ` (Port: ${cPort})` : ''}
               </div>
               
               <button
                 type="button"
                 onClick={async () => {
                   if (!window.confirm("Trigger AI security scan and start container rebuild?")) return;
+                  setBuildError('');
                   try {
                     await api(`/tools/${item.id}/demo/build`, { method: 'POST' });
-                    alert("Build triggered successfully!");
-                    onDone();
+                    // Kick the polling effect; progress shows in the step bar
+                    setLive({ ...item, demo_container_status: 'building', demo_container_build_logs: '[1/4] Build queued. Starting AI security audit...\n' });
                   } catch(e2) {
-                    alert("Build failed: " + e2.message);
+                    setBuildError(e2.message);
                   }
                 }}
                 style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}
@@ -271,9 +337,27 @@ function ReviewCard({ item, type, onDone, me, archived = false, allIdeas = [], o
               </button>
             </div>
 
-            {item.demo_container_build_logs && (
+            {buildError && (
+              <div style={{ marginTop: 10, padding: 12, background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontWeight: 700, fontSize: 12.5, color: '#b91c1c' }}>Build failed</span>
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(buildError)}
+                    style={{ padding: '3px 10px', borderRadius: 6, border: '1px solid #fecaca', background: '#fff', color: '#b91c1c', fontWeight: 600, fontSize: 11.5, cursor: 'pointer' }}
+                  >
+                    Copy error
+                  </button>
+                </div>
+                <pre style={{ margin: 0, fontSize: 11.5, color: '#991b1b', whiteSpace: 'pre-wrap', wordBreak: 'break-word', userSelect: 'text', fontFamily: 'var(--font-mono)' }}>
+                  {buildError}
+                </pre>
+              </div>
+            )}
+
+            {cLogs && (
               <div style={{ marginTop: 12 }}>
-                <details style={{ fontSize: 12 }}>
+                <details open={cStatus === 'building'} style={{ fontSize: 12 }}>
                   <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--text-secondary)' }}>Show Container Build Logs</summary>
                   <pre style={{ 
                     marginTop: 8, 
@@ -287,7 +371,7 @@ function ReviewCard({ item, type, onDone, me, archived = false, allIdeas = [], o
                     fontSize: 11,
                     whiteSpace: 'pre-wrap'
                   }}>
-                    {item.demo_container_build_logs}
+                    {cLogs}
                   </pre>
                 </details>
               </div>
@@ -303,10 +387,43 @@ function ReviewCard({ item, type, onDone, me, archived = false, allIdeas = [], o
         </div>
       ) : (
         <>
-          <textarea 
-            value={note} 
-            onChange={(e) => setNote(e.target.value)} 
-            placeholder="Decision note (sent to the submitter)…" 
+          {/* Committee discussion thread */}
+          <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: comments.length ? 8 : 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <MessageSquare size={13} /> Committee Discussion ({comments.length})
+            </div>
+            {comments.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8, maxHeight: 180, overflowY: 'auto' }}>
+                {comments.map((c, i) => (
+                  <div key={i} style={{ fontSize: 12.5, padding: '6px 10px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--primary-text)' }}>{c.author}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 6 }}>
+                      {c.ts ? new Date(c.ts * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                    </span>
+                    <div style={{ marginTop: 2, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>{c.text}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <input
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') postComment(); }}
+                placeholder="Add a note for fellow reviewers (not sent to the submitter)…"
+                style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 12.5 }}
+              />
+              <button type="button" onClick={postComment} disabled={!comment.trim()}
+                style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: 12.5, cursor: 'pointer', opacity: comment.trim() ? 1 : 0.5 }}>
+                Post
+              </button>
+            </div>
+          </div>
+
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Decision note (sent to the submitter)…"
             style={{ marginTop: 12, minHeight: 56, width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)' }} 
           />
           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -353,6 +470,7 @@ export default function ReviewCenter() {
   // Tabs: 'ideas' | 'products' | 'archive'
   const [tab, setTab] = useState('ideas');
   const [search, setSearch] = useState('');
+  const [digestCopied, setDigestCopied] = useState(false);
 
   const load = () => {
     api('/review/tools').then(setTools).catch(() => {});
@@ -429,15 +547,35 @@ export default function ReviewCenter() {
         </button>
       </div>
 
-      {/* Search Row */}
-      <div style={{ position: 'relative', width: '100%', maxWidth: 360, marginBottom: 24 }}>
-        <Search size={14} style={{ position: 'absolute', left: 12, top: 10, color: 'var(--text-muted)' }} />
-        <input 
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder={`Search ${tab} by title...`}
-          style={{ width: '100%', padding: '8px 12px 8px 34px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13 }}
-        />
+      {/* Search Row + Digest */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', width: '100%', maxWidth: 360 }}>
+          <Search size={14} style={{ position: 'absolute', left: 12, top: 10, color: 'var(--text-muted)' }} />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder={`Search ${tab} by title...`}
+            style={{ width: '100%', padding: '8px 12px 8px 34px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13 }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              const res = await api('/review/digest');
+              await navigator.clipboard.writeText(res.markdown);
+              setDigestCopied(true);
+              setTimeout(() => setDigestCopied(false), 2500);
+            } catch (e) { alert('Failed to generate digest: ' + e.message); }
+          }}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8,
+            border: '1px solid var(--border-color)', background: digestCopied ? 'var(--success)' : 'var(--bg-card)',
+            color: digestCopied ? '#fff' : 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer', transition: 'all 0.2s'
+          }}
+        >
+          {digestCopied ? <><Check size={14} /> Copied to clipboard!</> : <><Copy size={14} /> Copy Committee Digest</>}
+        </button>
       </div>
 
       {/* List Area */}

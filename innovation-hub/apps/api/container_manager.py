@@ -1,5 +1,6 @@
 import os
 import socket
+import time
 import zipfile
 import tempfile
 import shutil
@@ -8,6 +9,52 @@ import threading
 from typing import Optional
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+# ---- Idle sleep: stop demo containers nobody is viewing -------------------
+LAST_ACCESS = {}
+IDLE_SECONDS = 2 * 3600  # ponytail: fixed 2h idle timeout; promote to a Setting if it ever needs tuning
+
+def touch(tool_id: int):
+    LAST_ACCESS[tool_id] = time.time()
+
+def wake_container(tool_id: int) -> bool:
+    """Restart a sleeping demo container. Fast — image and port mapping are kept."""
+    res = subprocess.run(["docker", "start", f"demo-{tool_id}"], shell=True, capture_output=True, text=True)
+    touch(tool_id)
+    return res.returncode == 0
+
+def _idle_watcher(db_url: str):
+    engine = create_engine(db_url)
+    Session = sessionmaker(bind=engine)
+    while True:
+        time.sleep(600)
+        try:
+            from main import Tool
+            session = Session()
+            running = session.query(Tool).filter(Tool.demo_container_status == "running").all()
+            now = time.time()
+            for t in running:
+                last = LAST_ACCESS.get(t.id)
+                if last is None:
+                    # No access recorded since API start — grant a grace window
+                    LAST_ACCESS[t.id] = now
+                    continue
+                if now - last > IDLE_SECONDS:
+                    subprocess.run(["docker", "stop", f"demo-{t.id}"], shell=True,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    t.demo_container_status = "sleeping"
+                    session.commit()
+            session.close()
+        except Exception as e:
+            print(f"Idle watcher error: {e}")
+
+_watcher_started = False
+def start_idle_watcher(db_url: str):
+    global _watcher_started
+    if _watcher_started:
+        return
+    _watcher_started = True
+    threading.Thread(target=_idle_watcher, args=(db_url,), daemon=True).start()
 
 def find_free_port(start=9000, end=9999) -> int:
     for port in range(start, end + 1):
@@ -47,15 +94,32 @@ def _build_and_run_task(db_url: str, tool_id: int, zip_path: str, dockerfile_con
     })
     
     try:
-        # 1. Extract ZIP
+        # 1. Extract ZIP; descend into a single wrapper folder if the ZIP was
+        # made by zipping the project folder itself (matches analyzer's view)
         with zipfile.ZipFile(zip_path, 'r') as ref:
             ref.extractall(temp_dir)
-            
+        from analyzer import find_project_root
+        build_ctx = find_project_root(temp_dir)
+
         # 2. Write Dockerfile
-        dockerfile_path = os.path.join(temp_dir, "Dockerfile")
+        dockerfile_path = os.path.join(build_ctx, "Dockerfile")
         with open(dockerfile_path, "w", encoding="utf-8") as df:
             df.write(dockerfile_content)
             
+        # Fail fast with a clear message if the Docker daemon isn't running
+        chk = subprocess.run(["docker", "info"], shell=True, capture_output=True, text=True)
+        if chk.returncode != 0:
+            build_logs += (
+                "\nDocker daemon is not reachable — is Docker Desktop running?\n"
+                "Start Docker Desktop, wait for it to say 'Engine running', then click 'Run AI Audit & Rebuild'.\n"
+                f"Details: {(chk.stderr or chk.stdout or '').strip()[-500:]}\n"
+            )
+            _update_tool_db(db_url, tool_id, {
+                "demo_container_status": "build_failed",
+                "demo_container_build_logs": build_logs
+            })
+            return
+
         build_logs += "ZIP file extracted successfully.\nDockerfile generated.\nRunning docker build...\n"
         _update_tool_db(db_url, tool_id, {"demo_container_build_logs": build_logs})
         
@@ -64,7 +128,7 @@ def _build_and_run_task(db_url: str, tool_id: int, zip_path: str, dockerfile_con
         # Execute docker build capturing output line by line
         process = subprocess.Popen(
             ["docker", "build", "-t", image_name, "."],
-            cwd=temp_dir,
+            cwd=build_ctx,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -109,7 +173,7 @@ def _build_and_run_task(db_url: str, tool_id: int, zip_path: str, dockerfile_con
             "-p", f"127.0.0.1:{host_port}:{container_port}",
             "--memory", "256m",
             "--cpus", "0.5",
-            "--restart", "always",
+            "--restart", "unless-stopped",
             image_name
         ]
         
@@ -122,6 +186,9 @@ def _build_and_run_task(db_url: str, tool_id: int, zip_path: str, dockerfile_con
             })
             return
             
+        # Remove dangling images left behind by previous rebuilds of this tag
+        subprocess.run(["docker", "image", "prune", "-f"], shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
         build_logs += f"\nContainer started successfully on local port {host_port}.\n"
         _update_tool_db(db_url, tool_id, {
             "demo_container_status": "running",

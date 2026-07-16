@@ -52,6 +52,7 @@ export default function AdminCenter() {
   const [successMsg, setSuccessMsg] = useState('');
   const [routing, setRouting] = useState('committee');
   const [requiredReviewers, setRequiredReviewers] = useState(1);
+  const [aiAudit, setAiAudit] = useState({ enabled: true, provider: 'gemini', localUrl: 'http://localhost:11434', localModel: 'llama3.2' });
   const [tools, setTools] = useState([]);
   const [ideas, setIdeas] = useState([]);
   
@@ -187,6 +188,12 @@ export default function AdminCenter() {
         .then((data) => {
           if (data && data.idea_routing) setRouting(data.idea_routing);
           if (data && data.required_reviewers) setRequiredReviewers(Number(data.required_reviewers));
+          if (data) setAiAudit({
+            enabled: data.ai_audit_enabled !== 'false',
+            provider: data.ai_audit_provider || 'gemini',
+            localUrl: data.local_model_url || 'http://localhost:11434',
+            localModel: data.local_model_name || 'llama3.2',
+          });
         })
         .catch(() => {});
     }
@@ -356,6 +363,19 @@ export default function AdminCenter() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const saveAiAudit = async (next) => {
+    setAiAudit(next);
+    try {
+      await api('/admin/settings', { method: 'POST', body: {
+        ai_audit_enabled: String(next.enabled),
+        ai_audit_provider: next.provider,
+        local_model_url: next.localUrl,
+        local_model_name: next.localModel,
+      }});
+      showTempSuccess('AI audit settings saved.');
+    } catch (e) { setErr(e.message); }
   };
 
   const updateRouting = async (val) => {
@@ -985,7 +1005,7 @@ export default function AdminCenter() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {roleUsers.map((u) => {
                           const totalCredits = u.ai_credits ?? 5;
-                          const usedCredits = u.ai_usage ?? 0;
+                          const usedCredits = u.daily_usage ?? 0; // daily count — same metric as the user's own header chip
                           const remaining = Math.max(0, totalCredits - usedCredits);
                 const pct = totalCredits > 0 ? (remaining / totalCredits) * 100 : 0;
                 const barColor = pct > 50 ? '#22c55e' : pct > 20 ? '#eab308' : '#ef4444';
@@ -1223,6 +1243,84 @@ export default function AdminCenter() {
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* AI CODE AUDIT SETTINGS */}
+          <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <ShieldCheck size={18} /> AI Code Audit (Container Demos)
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
+              Controls the AI security scan and Dockerfile generation for containerized demo builds.
+            </p>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>Enable AI check</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>When off, builds skip the AI entirely and use heuristic stack detection with a standard Dockerfile.</div>
+              </div>
+              <button
+                onClick={() => saveAiAudit({ ...aiAudit, enabled: !aiAudit.enabled })}
+                style={{
+                  marginLeft: 'auto', width: 46, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer',
+                  background: aiAudit.enabled ? '#22c55e' : 'var(--border-color)', position: 'relative', transition: 'background 0.2s', flexShrink: 0
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: 3, left: aiAudit.enabled ? 23 : 3, width: 20, height: 20,
+                  borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
+                }} />
+              </button>
+            </div>
+
+            {aiAudit.enabled && (
+              <>
+                <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                  {[
+                    { id: 'gemini', label: 'Gemini API', desc: 'Uses the active Gemini key from Global API Keys.' },
+                    { id: 'local', label: 'Local Model', desc: 'OpenAI-compatible server (Ollama, LM Studio) — for testing.' },
+                  ].map((opt) => (
+                    <div
+                      key={opt.id}
+                      onClick={() => saveAiAudit({ ...aiAudit, provider: opt.id })}
+                      style={{
+                        flex: 1, padding: 14, borderRadius: 10, cursor: 'pointer',
+                        border: aiAudit.provider === opt.id ? '2px solid var(--primary)' : '2px solid var(--border-color)',
+                        background: aiAudit.provider === opt.id ? 'var(--secondary)' : 'var(--bg-main)',
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: 13, color: aiAudit.provider === opt.id ? 'var(--primary)' : 'var(--text-primary)' }}>{opt.label}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 3 }}>{opt.desc}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {aiAudit.provider === 'local' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+                    <div>
+                      <label style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', display: 'block', marginBottom: 5 }}>Server URL</label>
+                      <input
+                        value={aiAudit.localUrl}
+                        onChange={(e) => setAiAudit({ ...aiAudit, localUrl: e.target.value })}
+                        onBlur={() => saveAiAudit(aiAudit)}
+                        placeholder="http://localhost:11434"
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', display: 'block', marginBottom: 5 }}>Model Name</label>
+                      <input
+                        value={aiAudit.localModel}
+                        onChange={(e) => setAiAudit({ ...aiAudit, localModel: e.target.value })}
+                        onBlur={() => saveAiAudit(aiAudit)}
+                        placeholder="llama3.2"
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13 }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1470,6 +1568,7 @@ export default function AdminCenter() {
             </h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: 12.5, margin: '0 0 16px' }}>
               Monitor daily requests count against each key's individual daily request limits.
+              Only successful calls served by the pool count here — requests served by an admin's personal key or the local model fallback don't touch pool keys (see Telemetry & Audits for every request).
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {globalKeys.map((k) => {

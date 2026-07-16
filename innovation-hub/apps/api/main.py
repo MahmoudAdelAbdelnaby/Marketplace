@@ -18,6 +18,8 @@ import base64
 import tempfile
 from urllib.parse import urljoin
 import datetime as dt
+import json
+import threading
 from typing import Optional, List
 
 import jwt
@@ -112,6 +114,7 @@ class Tool(SQLModel, table=True):
     demo_container_port: Optional[int] = Field(default=None)
     demo_container_build_logs: str = Field(default="", sa_column=Column(TEXT))
     demo_security_report: str = Field(default="", sa_column=Column(TEXT))
+    review_comments: List[dict] = Field(default=[], sa_column=Column(JSON))
     created_at: float = Field(default_factory=lambda: time.time())
 
 
@@ -214,6 +217,7 @@ class Idea(SQLModel, table=True):
     votes: int = 0
     voters: List[int] = Field(default=[], sa_column=Column(JSON))
     notes: List[dict] = Field(default=[], sa_column=Column(JSON))
+    review_comments: List[dict] = Field(default=[], sa_column=Column(JSON))
     voc_id: Optional[int] = None
     team: str = ""
     tool_id: Optional[int] = None
@@ -329,6 +333,18 @@ app.add_middleware(
     allow_origin_regex="https?://(localhost|127\\.0\\.0\\.1)(:\\d+)?",
     allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def _unhandled_exception(request: Request, exc: Exception):
+    # Unhandled exceptions bypass CORSMiddleware, so the browser reports an
+    # opaque "Failed to fetch". Return the real error with CORS headers instead.
+    from fastapi.responses import JSONResponse
+    headers = {}
+    origin = request.headers.get("origin")
+    if origin:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"}, headers=headers)
 
 
 def get_session():
@@ -763,10 +779,11 @@ def auto_trigger_container_build_if_needed(tool: Tool, session: Session):
     if getattr(tool, "demo_type", "html") == "container" and getattr(tool, "demo_zip_url", ""):
         status = getattr(tool, "demo_container_status", "stopped")
         if status in ("stopped", "build_failed", "security_flagged"):
+            cfg = get_ai_audit_config(session)
             api_key = get_gemini_api_key(session)
-            if not api_key:
+            if cfg["ai_enabled"] and cfg["provider"] == "gemini" and not api_key:
                 tool.demo_container_status = "build_failed"
-                tool.demo_container_build_logs = "Build cancelled: Gemini API key is not configured."
+                tool.demo_container_build_logs = "Build cancelled: Gemini API key is not configured. Add a key, switch to a local model, or disable the AI audit in Admin settings."
                 session.add(tool); session.commit()
                 return
                 
@@ -786,7 +803,11 @@ def auto_trigger_container_build_if_needed(tool: Tool, session: Session):
                     
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                    audit = loop.run_until_complete(analyze_and_audit_zip_codebase(zip_path, api_key))
+                    audit = loop.run_until_complete(analyze_and_audit_zip_codebase(
+                        zip_path, api_key or "",
+                        ai_enabled=cfg["ai_enabled"], provider=cfg["provider"],
+                        local_url=cfg["local_url"], local_model=cfg["local_model"],
+                    ))
                     loop.close()
                     
                     _update_tool_db_local(tool.id, {"demo_security_report": json.dumps(audit)})
@@ -990,6 +1011,17 @@ def tool_demo(tool_id: int, s: Session = Depends(get_session)):
     return {"demo_html": t.demo_html}
 
 
+def get_ai_audit_config(s: Session) -> dict:
+    """AI audit settings: enabled toggle, provider (gemini | local), local server details."""
+    rows = {r.key: r.value for r in s.exec(select(Setting)).all()}
+    return {
+        "ai_enabled": rows.get("ai_audit_enabled", "true") != "false",
+        "provider": rows.get("ai_audit_provider", "gemini"),
+        "local_url": rows.get("local_model_url", "http://localhost:11434"),
+        "local_model": rows.get("local_model_name", "llama3.2"),
+    }
+
+
 def get_gemini_api_key(s: Session) -> Optional[str]:
     # Check global active gemini key
     key = s.exec(select(GlobalApiKey).where(GlobalApiKey.is_active == True).where(GlobalApiKey.provider == "gemini")).first()
@@ -1007,6 +1039,7 @@ def get_gemini_api_key(s: Session) -> Optional[str]:
 
 
 @app.get("/tools/{tool_id}/demo/raw", response_class=HTMLResponse)
+@app.get("/api/tools/{tool_id}/demo/raw", response_class=HTMLResponse)
 def tool_demo_raw(tool_id: int, s: Session = Depends(get_session)):
     t = s.get(Tool, tool_id)
     if not t:
@@ -1020,6 +1053,17 @@ def tool_demo_raw(tool_id: int, s: Session = Depends(get_session)):
         if status == "running" and port:
             from fastapi.responses import RedirectResponse
             return RedirectResponse(url=f"/api/tools/{tool_id}/demo/proxy/")
+        elif status == "sleeping":
+            from container_manager import wake_container
+            if wake_container(tool_id):
+                t.demo_container_status = "running"
+                s.add(t); s.commit()
+                return HTMLResponse(
+                    "<div style='font-family:sans-serif;padding:40px;text-align:center;color:#475569'>"
+                    "<h3>Waking up the demo…</h3><p>It was asleep to save resources. One moment.</p></div>"
+                    "<meta http-equiv='refresh' content='2'>"
+                )
+            return HTMLResponse("<h3>Demo is asleep and failed to wake. Try 'Run AI Audit & Rebuild' in the review center.</h3>")
         elif status == "building":
             return HTMLResponse("<h3>Live demo is currently building. Please wait a few seconds and refresh...</h3>")
         elif status == "build_failed":
@@ -1055,7 +1099,10 @@ async def proxy_container_demo(tool_id: int, path: str, request: Request, s: Ses
         raise HTTPException(404, "Tool not found")
     if getattr(t, "demo_type", "html") != "container" or not getattr(t, "demo_container_port", None):
         raise HTTPException(400, "Container demo is not running")
-        
+
+    from container_manager import touch
+    touch(tool_id)  # keeps the idle-sleep watcher from stopping an in-use demo
+
     target_url = f"http://127.0.0.1:{t.demo_container_port}/{path}"
     
     query_params = dict(request.query_params)
@@ -1083,9 +1130,18 @@ async def proxy_container_demo(tool_id: int, path: str, request: Request, s: Ses
             for key in list(resp_headers.keys()):
                 if key.lower() in ("x-frame-options", "content-security-policy", "content-length"):
                     resp_headers.pop(key)
-                    
+
+            content = resp.content
+            # Vite/CRA builds reference assets with root-absolute paths (/assets/...).
+            # Rewrite them in HTML so they stay under this proxy prefix.
+            if "text/html" in resp.headers.get("content-type", ""):
+                prefix = f"/api/tools/{tool_id}/demo/proxy"
+                html = content.decode("utf-8", errors="ignore")
+                html = re.sub(r'((?:src|href|action)=")/(?!/)', rf'\1{prefix}/', html)
+                content = html.encode("utf-8")
+
             return Response(
-                content=resp.content,
+                content=content,
                 status_code=resp.status_code,
                 headers=resp_headers
             )
@@ -1102,39 +1158,150 @@ async def trigger_demo_build(tool_id: int, u: User = Depends(current_user), s: S
     if not t.demo_zip_url:
         raise HTTPException(400, "No ZIP file uploaded for containerized demo")
         
+    cfg = get_ai_audit_config(s)
     api_key = get_gemini_api_key(s)
-    if not api_key:
-        raise HTTPException(500, "Gemini API key is not configured. Please add an active Gemini key in the Admin settings.")
-        
+    if cfg["ai_enabled"] and cfg["provider"] == "gemini" and not api_key:
+        raise HTTPException(500, "Gemini API key is not configured. Please add an active Gemini key in the Admin settings, or switch the AI audit to a local model / disable it.")
+
     # Run analyzer
     zip_path = t.demo_zip_url.lstrip("/") # uploads/demo_zip_xxx.zip
     # Support relative path if starts with api/
     if zip_path.startswith("api/"):
         zip_path = zip_path[4:]
-        
-    from analyzer import analyze_and_audit_zip_codebase
-    audit = await analyze_and_audit_zip_codebase(zip_path, api_key)
-    
-    t.demo_security_report = json.dumps(audit)
-    
-    if audit["decision"] == "flag":
-        t.demo_container_status = "security_flagged"
-        s.add(t); s.commit(); s.refresh(t)
-        return {"ok": False, "report": audit, "detail": "Codebase flagged by AI security audit. Build blocked."}
-        
+
+    # Respond immediately and run the audit + build in the background: the
+    # Gemini audit alone can take minutes, and holding the HTTP request open
+    # that long gets the connection dropped ("Failed to fetch").
+    tool_id_val = t.id
+    first_step = "[1/4] Build queued. Starting AI security audit...\n" if cfg["ai_enabled"] else "[1/4] Build queued. AI audit disabled — using heuristic stack detection...\n"
     t.demo_container_status = "building"
-    t.demo_container_build_logs = "Starting build pipeline...\n"
-    s.add(t); s.commit(); s.refresh(t)
-    
-    from container_manager import build_and_run_demo_container
-    build_and_run_demo_container(
-        db_url=DB_URL,
-        tool_id=t.id,
-        zip_path=zip_path,
-        dockerfile_content=audit["dockerfile"],
-        container_port=audit["container_port"]
-    )
-    return {"ok": True, "report": audit, "detail": "AI audit passed. Build started in the background."}
+    t.demo_container_build_logs = first_step
+    s.add(t); s.commit()
+
+    def run_audit_and_build():
+        import asyncio
+        def log_fail(msg):
+            # ponytail: failure history lives in build_logs (appended, capped at 20KB); separate table if it ever needs querying
+            stamp = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            with Session(engine) as bs:
+                bt = bs.get(Tool, tool_id_val)
+                if bt:
+                    bt.demo_container_status = "build_failed"
+                    bt.demo_container_build_logs = (
+                        (bt.demo_container_build_logs or "") + f"\n=== Failure @ {stamp} ===\n{msg}\n"
+                    )[-20000:]
+                    bs.add(bt); bs.commit()
+        try:
+            from analyzer import analyze_and_audit_zip_codebase
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            audit = loop.run_until_complete(analyze_and_audit_zip_codebase(
+                zip_path, api_key or "",
+                ai_enabled=cfg["ai_enabled"], provider=cfg["provider"],
+                local_url=cfg["local_url"], local_model=cfg["local_model"],
+            ))
+            loop.close()
+
+            _update_tool_db_local(tool_id_val, {"demo_security_report": json.dumps(audit)})
+
+            if audit["decision"] == "flag":
+                _update_tool_db_local(tool_id_val, {
+                    "demo_container_status": "security_flagged",
+                    "demo_container_build_logs": f"[2/4] AI audit FLAGGED the codebase. Build blocked.\nReason: {audit['reason']}\n"
+                })
+                return
+
+            _update_tool_db_local(tool_id_val, {
+                "demo_container_build_logs": f"[2/4] AI audit passed ({audit['tech_stack']}). Dockerfile generated.\n[3/4] Starting Docker build...\n"
+            })
+
+            from container_manager import build_and_run_demo_container
+            build_and_run_demo_container(
+                db_url=DB_URL,
+                tool_id=tool_id_val,
+                zip_path=zip_path,
+                dockerfile_content=audit["dockerfile"],
+                container_port=audit["container_port"]
+            )
+        except Exception as e:
+            log_fail(f"[2/4] AI audit failed: {e}")
+
+    threading.Thread(target=run_audit_and_build, daemon=True).start()
+    return {"ok": True, "detail": "Build pipeline started. Watch the container status and build logs for progress."}
+
+
+REVIEWER_ROLES = ("committee", "approver", "admin")
+
+@app.post("/tools/{tool_id}/review-comments")
+def add_tool_review_comment(tool_id: int, body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    if u.role not in REVIEWER_ROLES:
+        raise HTTPException(403, "Reviewers only")
+    t = s.get(Tool, tool_id)
+    if not t: raise HTTPException(404, "Tool not found")
+    text = (body.get("text") or "").strip()
+    if not text: raise HTTPException(400, "Comment text is required")
+    comments = list(t.review_comments or [])
+    comments.append({"author": u.name or u.email, "text": text, "ts": time.time()})
+    t.review_comments = comments
+    s.add(t); s.commit()
+    return {"ok": True, "review_comments": comments}
+
+
+@app.post("/ideas/{idea_id}/review-comments")
+def add_idea_review_comment(idea_id: int, body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    if u.role not in REVIEWER_ROLES:
+        raise HTTPException(403, "Reviewers only")
+    i = s.get(Idea, idea_id)
+    if not i: raise HTTPException(404, "Idea not found")
+    text = (body.get("text") or "").strip()
+    if not text: raise HTTPException(400, "Comment text is required")
+    comments = list(i.review_comments or [])
+    comments.append({"author": u.name or u.email, "text": text, "ts": time.time()})
+    i.review_comments = comments
+    s.add(i); s.commit()
+    return {"ok": True, "review_comments": comments}
+
+
+@app.get("/review/digest")
+def review_digest(u: User = Depends(current_user), s: Session = Depends(get_session)):
+    """Markdown summary of everything pending review — for sharing with the committee."""
+    if u.role not in REVIEWER_ROLES:
+        raise HTTPException(403, "Reviewers only")
+    tools = s.exec(select(Tool).where(Tool.review_status.in_(["pending", "changes"])).order_by(Tool.created_at)).all()
+    ideas = s.exec(select(Idea).where(Idea.status == "proposed").order_by(Idea.created_at)).all()
+
+    today = dt.date.today().isoformat()
+    lines = [f"# Pending Review Digest — {today}", ""]
+    lines.append(f"**{len(tools)} tool(s)** and **{len(ideas)} idea(s)** awaiting a decision.")
+    lines.append("")
+
+    if tools:
+        lines.append("## Tools")
+        for t in tools:
+            demo = "container demo" if t.demo_type == "container" else ("web demo" if t.demo_type == "url" else ("HTML demo" if t.has_demo else "no demo"))
+            if t.demo_type == "container":
+                demo += f" ({t.demo_container_status})"
+            roi = f"${t.roi:,.0f}/yr" if t.roi else "no ROI claim"
+            age_days = int((time.time() - (t.created_at or time.time())) / 86400)
+            comments = len(t.review_comments or [])
+            lines.append(f"- **{t.name}** ({t.category or 'uncategorized'}) — by {t.owner or 'unknown'}, {roi}, {demo}, "
+                         f"waiting {age_days}d, {comments} reviewer comment(s)"
+                         + (f" — status: {t.review_status}" if t.review_status != "pending" else ""))
+            if t.problem:
+                lines.append(f"  - Problem: {t.problem[:180]}")
+        lines.append("")
+
+    if ideas:
+        lines.append("## Ideas")
+        for i in ideas:
+            age_days = int((time.time() - (i.created_at or time.time())) / 86400)
+            comments = len(i.review_comments or [])
+            lines.append(f"- **{i.name}** — by {i.owner or 'unknown'}, {i.votes} vote(s), waiting {age_days}d, {comments} reviewer comment(s)")
+
+    if not tools and not ideas:
+        lines.append("_Nothing pending. All caught up!_")
+
+    return {"markdown": "\n".join(lines), "tool_count": len(tools), "idea_count": len(ideas)}
 
 
 @app.post("/tools/{tool_id}/vote")
@@ -1576,10 +1743,18 @@ async def ai_status():
 
 @app.post("/ai/generate")
 async def ai_generate(body: AIGenerateIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
-    # Enforce AI credits limit for normal users (viewers/product owners/etc)
-    # Admin accounts are exempt
-    if u.role != "admin" and u.ai_usage >= u.ai_credits:
-        raise HTTPException(403, f"You have run out of AI credits ({u.ai_usage}/{u.ai_credits}). Please contact your administrator to refresh/recharge your usage.")
+    # Enforce the DAILY AI credit limit for normal users (admins exempt).
+    # Counted from today's audit log so it genuinely resets at midnight —
+    # u.ai_usage stays as a lifetime total for stats only.
+    if u.role != "admin":
+        today_start = dt.datetime.combine(dt.date.today(), dt.time.min).timestamp()
+        used_today = len(s.exec(
+            select(AIAuditLog)
+            .where(AIAuditLog.user_id == u.id)
+            .where(AIAuditLog.created_at >= today_start)
+        ).all())
+        if used_today >= u.ai_credits:
+            raise HTTPException(403, f"You have used all {u.ai_credits} daily AI credits ({used_today}/{u.ai_credits}). They reset at midnight, or ask an admin to raise your limit.")
 
     prompt = body.prompt
     start_time = time.time()
@@ -2015,8 +2190,15 @@ def get_analytics(start_time: Optional[float] = None, end_time: Optional[float] 
 @app.get("/admin/api-keys")
 def get_global_api_keys(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
     keys = s.exec(select(GlobalApiKey).order_by(GlobalApiKey.id)).all()
+    today_str = time.strftime("%Y-%m-%d")
     result = []
     for k in keys:
+        # A new day means the daily counter is stale — reset it here too, not
+        # only in /ai/generate, so the admin view is correct before first use
+        if k.last_used_date != today_str:
+            k.last_used_date = today_str
+            k.daily_requests_count = 0
+            s.add(k); s.commit()
         val = k.key_value
         masked = val[:4] + "..." + val[-4:] if len(val) > 8 else "..."
         result.append({
@@ -2027,6 +2209,9 @@ def get_global_api_keys(u: User = Depends(require("admin")), s: Session = Depend
             "is_active": k.is_active,
             "request_count": k.requests_count,
             "requests_count": k.requests_count,
+            "daily_requests_count": k.daily_requests_count,
+            "daily_limit": k.daily_limit,
+            "last_used_date": k.last_used_date,
             "key_value": val,
             "key_value_masked": masked,
             "created_at": k.created_at
@@ -2146,13 +2331,15 @@ def migrate():
                          ("demo_container_status", "VARCHAR DEFAULT 'stopped'"),
                          ("demo_container_port", "INTEGER DEFAULT NULL"),
                          ("demo_container_build_logs", "TEXT DEFAULT ''"),
-                         ("demo_security_report", "TEXT DEFAULT ''")]:
+                         ("demo_security_report", "TEXT DEFAULT ''"),
+                         ("review_comments", "JSON DEFAULT '[]'")]:
             if tcols and col not in tcols:
                 conn.exec_driver_sql(f"ALTER TABLE tool ADD COLUMN {col} {ddl}")
         icols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(idea)").fetchall()]
         for col, ddl in [("review_note", "VARCHAR DEFAULT ''"), ("decided_by", "VARCHAR DEFAULT ''"),
                          ("votes", "INTEGER DEFAULT 0"), ("voters", "JSON DEFAULT '[]'"),
-                         ("notes", "JSON DEFAULT '[]'")]:
+                         ("notes", "JSON DEFAULT '[]'"),
+                         ("review_comments", "JSON DEFAULT '[]'")]:
             if icols and col not in icols:
                 conn.exec_driver_sql(f"ALTER TABLE idea ADD COLUMN {col} {ddl}")
         
@@ -2219,6 +2406,8 @@ def on_start():
     SQLModel.metadata.create_all(engine)
     migrate()
     seed()
+    from container_manager import start_idle_watcher
+    start_idle_watcher(DB_URL)
 
 
 ACTIVE_PROXY_TARGET = None

@@ -712,8 +712,8 @@ Copilot:`;
         }}>
           {/* Header */}
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 8, padding: '14px 18px',
-            borderBottom: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.03)'
+            display: 'flex', alignItems: 'center', gap: 8, padding: inline ? '17px 18px' : '14px 18px',
+            borderBottom: '1px solid var(--border-color)', background: inline ? 'transparent' : 'rgba(255,255,255,0.03)'
           }}>
             <Sparkles size={16} style={{ color: 'var(--primary-text)' }} />
             <span style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--text-primary)' }}>AI Copilot</span>
@@ -791,7 +791,7 @@ Copilot:`;
                   if (!busy && input.trim()) send(e);
                 }
               }}
-              placeholder={assistEnabled && (isOnIdeaPage || isToolOpen) ? "Describe your idea/product..." : "Ask about roadmap, features, integration..."} 
+              placeholder={assistEnabled && (isOnIdeaPage || isToolOpen) ? (isOnIdeaPage ? "Describe your idea…" : "Describe your tool…") : "Ask me anything…"}
               style={{
                 flex: 1, padding: '8px 14px', borderRadius: 10, fontSize: 13,
                 border: '1px solid var(--border-color)', background: 'var(--bg-main)',
