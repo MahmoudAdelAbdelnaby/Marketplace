@@ -4,6 +4,93 @@ import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import { useAuthStore } from '../../store/useAuthStore';
 
+// A simple markdown-to-html parser to render rich text for Teams/Outlook clipboard
+function convertMarkdownToHtml(md) {
+  let html = md;
+  
+  // Escape HTML entities to prevent rendering issues
+  html = html
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  // Restore the header tags we want to render
+  html = html.replace(/&lt;br\s*\/&gt;/gi, '<br/>');
+
+  // Convert headings
+  html = html.replace(/^### (.*?)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.*?)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.*?)$/gm, '<h1>$1</h1>');
+
+  // Convert bold
+  html = html.replace(/\*\*(.*?)\*\"/g, '<strong>$1</strong>');
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+  // Convert bullet lists (lines starting with * or - followed by space)
+  html = html.split('\n').map(line => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
+      return `<li>${trimmed.slice(2)}</li>`;
+    }
+    return line;
+  }).join('\n');
+
+  // Group consecutive <li> items into <ul> blocks
+  html = html.replace(/(<li>.*?<\/li>)+/gs, (match) => `<ul>${match}</ul>`);
+
+  // Convert horizontal rules
+  html = html.replace(/---/g, '<hr style="border: 0; border-top: 1px solid #ccc; margin: 16px 0;" />');
+
+  // Convert paragraph double newlines to <p>
+  html = html.replace(/\n\n/g, '<br/><br/>');
+  html = html.replace(/\n/g, '<br/>');
+
+  return `<div style="font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #333; line-height: 1.4;">${html}</div>`;
+}
+
+async function copyTextAndHtmlToClipboard(plainText) {
+  const htmlText = convertMarkdownToHtml(plainText);
+
+  // Modern secure context copy
+  if (navigator.clipboard && navigator.clipboard.write) {
+    try {
+      const blobText = new Blob([plainText], { type: 'text/plain' });
+      const blobHtml = new Blob([htmlText], { type: 'text/html' });
+      const data = [new window.ClipboardItem({
+        'text/plain': blobText,
+        'text/html': blobHtml
+      })];
+      await navigator.clipboard.write(data);
+      return;
+    } catch (e) {
+      console.warn("Secure Clipboard API failed, falling back to document.execCommand:", e);
+    }
+  }
+
+  // Fallback for HTTP context (IP address page on VM)
+  const el = document.createElement('div');
+  el.innerHTML = htmlText;
+  el.style.position = 'absolute';
+  el.style.left = '-9999px';
+  document.body.appendChild(el);
+  
+  // Select the element contents
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  
+  const success = document.execCommand('copy');
+  sel.removeAllRanges();
+  document.body.removeChild(el);
+
+  if (!success) {
+    throw new Error('Clipboard copy operation failed.');
+  }
+}
+
+
 function ReviewCard({ item, type, onDone, me, archived = false, allIdeas = [], onDeleteArchive }) {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -565,7 +652,7 @@ export default function ReviewCenter() {
           onClick={async () => {
             try {
               const res = await api('/review/digest');
-              await navigator.clipboard.writeText(res.markdown);
+              await copyTextAndHtmlToClipboard(res.markdown);
               setDigestCopied(true);
               setTimeout(() => setDigestCopied(false), 2500);
             } catch (e) { alert('Failed to generate digest: ' + e.message); }
@@ -585,7 +672,7 @@ export default function ReviewCenter() {
             setGeneratingAi(true);
             try {
               const res = await api('/review/ai-digest', { method: 'POST' });
-              await navigator.clipboard.writeText(res.digest);
+              await copyTextAndHtmlToClipboard(res.digest);
               setAiDigestCopied(true);
               setTimeout(() => setAiDigestCopied(false), 2500);
             } catch (e) { alert('Failed to generate AI executive digest: ' + e.message); }

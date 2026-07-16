@@ -1332,18 +1332,19 @@ async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends
                 
     data_str = "\n".join(input_lines) if (tools or ideas) else "No pending items."
     
-    prompt = f"""You are the Executive Innovation Assistant. Act as an assistant creating an executive summary for the board to review and approve.
-Read the following list of pending submissions (tools and ideas awaiting review) and produce a high-impact, professional, ready-to-paste weekly cadence channel Executive Digest.
+    prompt = f"""You are the Executive Innovation Assistant. Act as a seasoned chief of staff creating a comprehensive, clear, and actionable executive summary for the innovation board.
+Read the list of pending submissions (tools and ideas awaiting review) and produce a high-impact, professional weekly cadence board Executive Digest.
 
 Guidelines:
-1. Start with a header like:
+1. Start with a header:
    "🚀 **Weekly Innovation Board Digest - {dt.date.today().isoformat()}**"
-   followed by a brief 1-2 sentence overview of overall pending activity (e.g. "We currently have {len(tools)} tool(s) and {len(ideas)} idea(s) awaiting review. Below is the executive summary and recommended action for each.")
+   followed by a brief 1-2 sentence overview of overall pending activity (e.g. "We currently have {len(tools)} tool(s) and {len(ideas)} idea(s) awaiting review. Please find the executive summaries and recommended actions below.")
 2. Group the items into:
-   - **🎯 Tools Awaiting Approval**: Summarize each tool's core value, and give a clear board Recommendation (e.g. "Approve for Pilot", "Schedule Demo", "Return to Owner for Info").
-   - **💡 Community Ideas**: Summarize proposed ideas, noting community votes/demand, and suggest next steps.
-3. For each item, keep it concise (2-3 sentences max) but complete. Highlight estimated ROI or community impact.
-4. Keep the format clean, well-spaced, and actionable for board members.
+   - **🎯 Tools Awaiting Approval**: For each tool, summarize its name, owner, department, core value (what specific problem it solves and its main capabilities/deliverables), estimated ROI/savings, and a clear board Recommendation (e.g. "Approve for Pilot", "Schedule Demo", "Return to Owner for Info").
+   - **💡 Community Ideas**: For each idea, summarize its name, owner, description/intent, community votes/engagement level, and recommended next steps.
+3. CRITICAL: Do NOT consolidate or group distinct submissions under generic categories (like "General Submissions" or "Miscellaneous"). Every single submission must be detailed individually by name so the board knows exactly what it is reviewing and approving.
+4. For each submission, provide a clear, descriptive paragraph (3-4 sentences) that highlights its unique features and technical flavor, rather than a generic or overly brief sentence.
+5. Keep the formatting clean, professional, and well-spaced.
 
 Pending Submissions List:
 {data_str}
