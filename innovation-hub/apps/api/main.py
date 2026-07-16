@@ -49,9 +49,17 @@ pwd = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2")
 ROLES = ("waiting", "viewer", "product_owner", "committee", "approver", "admin")
+REVIEWER_ROLES = ("committee", "approver", "admin")
 
 
 # ----------------------------------------------------------------- models
+class Organization(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True, index=True)
+    created_at: float = Field(default_factory=lambda: time.time())
+    default_permissions: dict = Field(default={}, sa_column=Column(JSON))
+
+
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     email: str = Field(index=True, unique=True)
@@ -65,6 +73,8 @@ class User(SQLModel, table=True):
     ai_credits: int = Field(default=5)
     ai_usage: int = Field(default=0)
     created_at: float = Field(default_factory=lambda: time.time())
+    org_id: Optional[int] = None
+    permissions: dict = Field(default={}, sa_column=Column(JSON))
 
 
 class Tool(SQLModel, table=True):
@@ -247,6 +257,7 @@ class Invitation(SQLModel, table=True):
     created_at: float = Field(default_factory=lambda: time.time())
     expires_at: float
     status: str = "pending"  # pending | accepted
+    org_id: Optional[int] = None
 
 
 class Setting(SQLModel, table=True):
@@ -313,6 +324,19 @@ class AdminPasswordResetIn(BaseModel):
 class InviteIn(BaseModel):
     email: str
     role: str
+    org_id: Optional[int] = None
+
+class OrganizationIn(BaseModel):
+    name: str
+    default_permissions: Optional[dict] = {}
+
+class UserPermissionsIn(BaseModel):
+    role: str
+    org_id: Optional[int] = None
+    permissions: dict
+
+class SettingsIn(BaseModel):
+    global_default_ai_credits: int
 
 
 class SponsorIn(BaseModel):
@@ -374,10 +398,11 @@ def optional_user(authorization: str = Header(default=""), s: Session = Depends(
     if not authorization.startswith("Bearer "):
         return None
     try:
-        data = jwt.decode(authorization.split(" ", 1)[1], SECRET, algorithms=[ALGO])
-    except jwt.PyJWTError:
+        token_val = authorization.split(" ", 1)[1]
+        data = jwt.decode(token_val, SECRET, algorithms=[ALGO])
+        return s.get(User, int(data["sub"]))
+    except Exception:
         return None
-    return s.get(User, int(data["sub"]))
 
 
 
@@ -404,8 +429,50 @@ def require(*roles):
     return dep
 
 
+SYSTEM_DEFAULTS = {
+    "can_see_client_names": True,
+    "can_see_roi": True,
+    "can_submit_tools": True,
+    "can_submit_ideas": True,
+    "can_push_live_demos": True,
+    "allowed_categories": ["all"],
+    "allowed_pages": ["catalog", "roadmap", "matchmaker", "insights", "settings"],
+    "ai_credits_override": 5
+}
+
+def get_effective_permissions(u: User, s: Session) -> dict:
+    if u.role in REVIEWER_ROLES:
+        return {
+            "can_see_client_names": True,
+            "can_see_roi": True,
+            "can_submit_tools": True,
+            "can_submit_ideas": True,
+            "can_push_live_demos": True,
+            "allowed_categories": ["all"],
+            "allowed_pages": ["catalog", "roadmap", "matchmaker", "insights", "settings"],
+            "ai_credits_override": 9999
+        }
+    perms = dict(SYSTEM_DEFAULTS)
+    credits_setting = s.exec(select(Setting).where(Setting.key == "global_default_ai_credits")).first()
+    if credits_setting:
+        perms["ai_credits_override"] = int(credits_setting.value)
+        
+    if getattr(u, "org_id", None):
+        org = s.get(Organization, u.org_id)
+        if org and org.default_permissions:
+            for k, v in org.default_permissions.items():
+                if v is not None:
+                    perms[k] = v
+    user_perms = getattr(u, "permissions", None) or {}
+    for k, v in user_perms.items():
+        if v is not None:
+            perms[k] = v
+    return perms
+
+
 def public_user(u: User) -> dict:
     daily_count = 0
+    effective_perms = SYSTEM_DEFAULTS
     try:
         today_start = dt.datetime.combine(dt.date.today(), dt.time.min).timestamp()
         with Session(engine) as s:
@@ -414,6 +481,7 @@ def public_user(u: User) -> dict:
                 .where(AIAuditLog.user_id == u.id)
                 .where(AIAuditLog.created_at >= today_start)
             ).all())
+            effective_perms = get_effective_permissions(u, s)
     except Exception:
         pass
 
@@ -426,15 +494,23 @@ def public_user(u: User) -> dict:
         "ai_provider": u.ai_provider,
         "has_ai_key": bool(u.ai_key),
         "ai_model": getattr(u, "ai_model", "llama3.2"),
-        "ai_credits": u.ai_credits,
+        "ai_credits": effective_perms.get("ai_credits_override", u.ai_credits),
         "ai_usage": u.ai_usage,
-        "daily_usage": daily_count
+        "daily_usage": daily_count,
+        "org_id": getattr(u, "org_id", None),
+        "permissions": effective_perms
     }
 
 
-def public_tool(t: Tool) -> dict:
+def public_tool(t: Tool, u: Optional[User] = None, s: Optional[Session] = None) -> dict:
     d = t.dict()
     d.pop("demo_html", None)
+    if u and s:
+        perms = get_effective_permissions(u, s)
+        if not perms.get("can_see_roi", True):
+            d["roi"] = 0
+        if not perms.get("can_see_client_names", True):
+            d["account"] = "Confidential Client"
     return d
 
 
@@ -472,7 +548,25 @@ def validate_invite(token: str, s: Session = Depends(get_session)):
 @app.post("/auth/register")
 def register(body: RegisterIn, s: Session = Depends(get_session)):
     email = body.email.lower().strip()
-    if not email.endswith("@concentrix.com"):
+    invite_role = None
+    invite_org_id = None
+    
+    if body.token:
+        inv = s.exec(select(Invitation).where(Invitation.token == body.token)).first()
+        if not inv:
+            raise HTTPException(400, "Invitation token is invalid.")
+        if inv.status != "pending":
+            raise HTTPException(400, "Invitation token has already been used.")
+        if inv.expires_at < time.time():
+            raise HTTPException(400, "Invitation token has expired.")
+        if inv.email.lower().strip() != email:
+            raise HTTPException(400, "Invitation token email mismatch.")
+        invite_role = inv.role
+        invite_org_id = inv.org_id
+        inv.status = "accepted"
+        s.add(inv)
+        
+    if not email.endswith("@concentrix.com") and not invite_role:
         raise HTTPException(400, "Registration is restricted to @concentrix.com email addresses.")
     
     password = body.password
@@ -490,25 +584,11 @@ def register(body: RegisterIn, s: Session = Depends(get_session)):
     if s.exec(select(User).where(User.email == email)).first():
         raise HTTPException(400, "Email already registered")
 
-    invite_role = None
-    if body.token:
-        inv = s.exec(select(Invitation).where(Invitation.token == body.token)).first()
-        if not inv:
-            raise HTTPException(400, "Invitation token is invalid.")
-        if inv.status != "pending":
-            raise HTTPException(400, "Invitation token has already been used.")
-        if inv.expires_at < time.time():
-            raise HTTPException(400, "Invitation token has expired.")
-        if inv.email != email:
-            raise HTTPException(400, "Invitation token email mismatch.")
-        invite_role = inv.role
-        inv.status = "accepted"
-        s.add(inv)
-
     role = invite_role if invite_role else "waiting"
     
     u = User(email=email, name=body.name or email.split("@")[0], role=role,
-             department=body.department or "", password_hash=pwd.hash(body.password))
+             department=body.department or "", password_hash=pwd.hash(body.password),
+             org_id=invite_org_id, permissions={})
     s.add(u); s.commit(); s.refresh(u)
 
     if role == "waiting":
@@ -569,27 +649,33 @@ def change_password(body: ChangePasswordIn, u: User = Depends(current_user), s: 
 
 # ----------------------------------------------------------------- tools
 @app.get("/tools")
-def list_tools(s: Session = Depends(get_session)):
+def list_tools(u: Optional[User] = Depends(optional_user), s: Session = Depends(get_session)):
     rows = s.exec(select(Tool).where(Tool.review_status == "approved").order_by(Tool.created_at.desc())).all()
-    return [public_tool(t) for t in rows]
+    if u:
+        perms = get_effective_permissions(u, s)
+        allowed_cats = perms.get("allowed_categories", ["all"])
+        if "all" not in allowed_cats:
+            rows = [t for t in rows if t.category in allowed_cats]
+    return [public_tool(t, u, s) for t in rows]
 
 
 @app.get("/my/tools")
 def my_tools(u: User = Depends(current_user), s: Session = Depends(get_session)):
     rows = s.exec(select(Tool).order_by(Tool.created_at.desc())).all()
     filtered = [t for t in rows if is_owner_or_co_owner(t, u)]
-    return [public_tool(t) for t in filtered]
+    return [public_tool(t, u, s) for t in filtered]
 
 
 @app.get("/review/tools")
 def review_tools(u: User = Depends(require("committee", "approver", "admin")), s: Session = Depends(get_session)):
     rows = s.exec(select(Tool).where(Tool.review_status.in_(["pending", "changes"])).order_by(Tool.created_at)).all()
-    return [public_tool(t) for t in rows]
+    return [public_tool(t, u, s) for t in rows]
+
 
 @app.get("/archive/tools")
 def archive_tools(u: User = Depends(require("committee", "approver", "admin")), s: Session = Depends(get_session)):
     rows = s.exec(select(Tool).where(Tool.review_status.in_(["declined", "changes"])).order_by(Tool.created_at.desc())).all()
-    return [public_tool(t) for t in rows]
+    return [public_tool(t, u, s) for t in rows]
 
 
 def save_uploaded_ppt_as_pdf(ppt_data_url: str) -> str:
@@ -877,9 +963,14 @@ def get_tool(tool_id: int, u: Optional[User] = Depends(optional_user), s: Sessio
     if not t: raise HTTPException(404, "Not found")
     if t.review_status != "approved":
         if not u: raise HTTPException(401, "Authentication required for pending tools")
-        if not is_owner_or_co_owner(t, u) and u.role not in ("committee", "approver", "admin"):
+        if not is_owner_or_co_owner(t, u) and u.role not in REVIEWER_ROLES:
             raise HTTPException(403, "Access denied")
-    return public_tool(t)
+    elif u:
+        perms = get_effective_permissions(u, s)
+        allowed_cats = perms.get("allowed_categories", ["all"])
+        if "all" not in allowed_cats and t.category not in allowed_cats:
+            raise HTTPException(403, "Access to this category is restricted.")
+    return public_tool(t, u, s)
 
 
 @app.patch("/tools/{tool_id}")
@@ -1591,11 +1682,12 @@ def review_idea(idea_id: int, body: ReviewIn, u: User = Depends(require("committ
 @app.get("/voc")
 def get_vocs(u: User = Depends(current_user), s: Session = Depends(get_session)):
     rows = s.exec(select(VocIssue).order_by(VocIssue.created_at.desc())).all()
-    if u.role not in ("admin", "committee", "approver"):
+    perms = get_effective_permissions(u, s)
+    if not perms.get("can_see_client_names", True):
         results = []
         for r in rows:
             d = r.dict()
-            d["client"] = "Confidential" if d.get("client") else ""
+            d["client"] = "Confidential Client" if d.get("client") else ""
             results.append(d)
         return results
     return [r.dict() for r in rows]
@@ -1667,13 +1759,20 @@ def admin_users(u: User = Depends(require("admin")), s: Session = Depends(get_se
 
 
 @app.post("/admin/invites")
-def create_invite(body: InviteIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+def create_invite(body: InviteIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
     email = body.email.lower().strip()
-    if not email.endswith("@concentrix.com"):
-        raise HTTPException(400, "Invitation email must be a @concentrix.com address.")
     if body.role not in ROLES:
         raise HTTPException(400, f"Role must be one of {ROLES}")
         
+    if u.role != "admin":
+        try:
+            inviter_idx = ROLES.index(u.role)
+            invitee_idx = ROLES.index(body.role)
+        except ValueError:
+            raise HTTPException(400, "Invalid role specified.")
+        if invitee_idx > inviter_idx:
+            raise HTTPException(403, f"You cannot invite someone with a higher role than yours ({u.role}).")
+            
     existing_user = s.exec(select(User).where(User.email == email)).first()
     if existing_user:
         raise HTTPException(400, "A user with this email is already registered.")
@@ -1685,9 +1784,13 @@ def create_invite(body: InviteIn, u: User = Depends(require("admin")), s: Sessio
     token = secrets.token_urlsafe(32)
     expires_at = time.time() + (7 * 24 * 3600)
     
-    inv = Invitation(email=email, token=token, role=body.role, expires_at=expires_at)
+    target_org_id = u.org_id
+    if u.role == "admin" and body.org_id is not None:
+        target_org_id = body.org_id
+        
+    inv = Invitation(email=email, token=token, role=body.role, expires_at=expires_at, org_id=target_org_id)
     s.add(inv); s.commit(); s.refresh(inv)
-    return {"token": inv.token, "email": inv.email, "role": inv.role}
+    return {"token": inv.token, "email": inv.email, "role": inv.role, "org_id": inv.org_id}
 
 
 @app.get("/admin/invites")
@@ -1700,6 +1803,72 @@ def delete_invite(invite_id: int, u: User = Depends(require("admin")), s: Sessio
     inv = s.get(Invitation, invite_id)
     if not inv: raise HTTPException(404, "Invitation not found")
     s.delete(inv); s.commit()
+    return {"ok": True}
+
+
+@app.get("/admin/users")
+def admin_list_users(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    users = s.exec(select(User).order_by(User.created_at.desc())).all()
+    orgs = {org.id: org.name for org in s.exec(select(Organization)).all()}
+    res = []
+    for user in users:
+        d = public_user(user)
+        d["org_name"] = orgs.get(user.org_id, "Concentrix Internal") if user.org_id else "Concentrix Internal"
+        res.append(d)
+    return res
+
+
+@app.put("/admin/users/{user_id}/permissions")
+def admin_update_permissions(user_id: int, body: UserPermissionsIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    target = s.get(User, user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+    if body.role not in ROLES:
+        raise HTTPException(400, f"Role must be one of {ROLES}")
+    target.role = body.role
+    target.org_id = body.org_id
+    target.permissions = body.permissions
+    s.add(target); s.commit(); s.refresh(target)
+    return public_user(target)
+
+
+@app.get("/admin/organizations")
+def admin_list_organizations(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    return s.exec(select(Organization).order_by(Organization.name)).all()
+
+
+@app.post("/admin/organizations")
+def admin_create_organization(body: OrganizationIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    if s.exec(select(Organization).where(Organization.name == body.name)).first():
+        raise HTTPException(400, "Organization name already exists")
+    org = Organization(name=body.name, default_permissions=body.default_permissions)
+    s.add(org); s.commit(); s.refresh(org)
+    return org
+
+
+@app.get("/admin/settings")
+def admin_get_settings(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    credits_setting = s.exec(select(Setting).where(Setting.key == "global_default_ai_credits")).first()
+    return {
+        "global_default_ai_credits": int(credits_setting.value) if credits_setting else 5
+    }
+
+
+@app.put("/admin/settings")
+def admin_update_settings(body: SettingsIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    credits_setting = s.exec(select(Setting).where(Setting.key == "global_default_ai_credits")).first()
+    if not credits_setting:
+        credits_setting = Setting(key="global_default_ai_credits", value=str(body.global_default_ai_credits))
+    else:
+        credits_setting.value = str(body.global_default_ai_credits)
+    s.add(credits_setting); s.commit()
+    return {"ok": True}
+
+
+@app.post("/admin/users/reset-ai-credits")
+def admin_reset_ai_credits(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    s.exec(delete(AIAuditLog))
+    s.commit()
     return {"ok": True}
 
 
@@ -1878,8 +2047,10 @@ async def ai_generate(body: AIGenerateIn, u: User = Depends(current_user), s: Se
             .where(AIAuditLog.user_id == u.id)
             .where(AIAuditLog.created_at >= today_start)
         ).all())
-        if used_today >= u.ai_credits:
-            raise HTTPException(403, f"You have used all {u.ai_credits} daily AI credits ({used_today}/{u.ai_credits}). They reset at midnight, or ask an admin to raise your limit.")
+        perms = get_effective_permissions(u, s)
+        limit = perms.get("ai_credits_override", u.ai_credits)
+        if used_today >= limit:
+            raise HTTPException(403, f"You have used all {limit} daily AI credits ({used_today}/{limit}). They reset at midnight, or ask an admin to raise your limit.")
 
     prompt = body.prompt
     start_time = time.time()
@@ -2470,9 +2641,14 @@ def migrate():
         
         ucols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(user)").fetchall()]
         for col, ddl in [("ai_model", "VARCHAR DEFAULT 'llama3.2'"), ("department", "VARCHAR DEFAULT ''"),
-                         ("ai_credits", "INTEGER DEFAULT 5"), ("ai_usage", "INTEGER DEFAULT 0")]:
+                         ("ai_credits", "INTEGER DEFAULT 5"), ("ai_usage", "INTEGER DEFAULT 0"),
+                         ("org_id", "INTEGER DEFAULT NULL"), ("permissions", "JSON DEFAULT '{}'")]:
             if ucols and col not in ucols:
                 conn.exec_driver_sql(f"ALTER TABLE user ADD COLUMN {col} {ddl}")
+
+        inv_cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(invitation)").fetchall()]
+        if inv_cols and "org_id" not in inv_cols:
+            conn.exec_driver_sql("ALTER TABLE invitation ADD COLUMN org_id INTEGER DEFAULT NULL")
 
         gcols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(globalapikey)").fetchall()]
         for col, ddl in [("daily_requests_count", "INTEGER DEFAULT 0"),
@@ -2486,6 +2662,9 @@ def seed():
     with Session(engine) as s:
         if not s.exec(select(Setting).where(Setting.key == "idea_routing")).first():
             s.add(Setting(key="idea_routing", value="committee"))
+            s.commit()
+        if not s.exec(select(Setting).where(Setting.key == "global_default_ai_credits")).first():
+            s.add(Setting(key="global_default_ai_credits", value="5"))
             s.commit()
         if not s.exec(select(User).where(User.email == "admin")).first():
             s.add(User(email="admin", name="Admin", role="admin", password_hash=pwd.hash("admin")))

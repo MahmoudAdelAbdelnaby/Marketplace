@@ -4,6 +4,7 @@ import { Search, Plus, ChevronLeft, ChevronRight, Sparkles, X, Layers } from 'lu
 import { useCatalogStore } from '../../store/useCatalogStore';
 import ToolForm from './ToolForm';
 import BrandShapes from '../ui/BrandShapes';
+import { useAuthStore } from '../../store/useAuthStore';
 import { api } from '../../api';
 
 const STATUS_STYLE = {
@@ -122,6 +123,7 @@ function CardPreview({ t }) {
 }
 
 function ToolCard({ t, onOpen, compareIds, onToggleCompare, compareMode }) {
+  const user = useAuthStore((s) => s.user);
   let safeStatus = t.implementation_status || 'not_implemented';
   if (safeStatus === 'third_party') safeStatus = '3rd_party';
   
@@ -180,7 +182,7 @@ function ToolCard({ t, onOpen, compareIds, onToggleCompare, compareMode }) {
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto', paddingTop: 14, borderTop: '1px solid rgba(0,0,0,0.05)', flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--badge-fg-owner)', background: 'rgba(255,132,0,0.14)', borderRadius: 999, padding: '4px 10px' }}>{t.owner}</span>
-        {fmtMoney(t.roi) && <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)' }}>{fmtMoney(t.roi)}/yr</span>}
+        {user?.permissions?.can_see_roi !== false && fmtMoney(t.roi) && <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)' }}>{fmtMoney(t.roi)}/yr</span>}
         <span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 700, color: 'var(--primary-text)', cursor: 'pointer' }}>View Details &rarr;</span>
       </div>
       </div>
@@ -189,6 +191,7 @@ function ToolCard({ t, onOpen, compareIds, onToggleCompare, compareMode }) {
 }
 
 function FeaturedCarousel({ tools, onOpen }) {
+  const user = useAuthStore((s) => s.user);
   const carouselRef = React.useRef(null);
   const [activeIndex, setActiveIndex] = React.useState(0);
   const isDown = React.useRef(false);
@@ -420,7 +423,7 @@ function FeaturedCarousel({ tools, onOpen }) {
                     <ClientTags accountString={t.account} variant="carousel" />
                   </div>
                 </div>
-                {t.roi > 0 && (
+                {user?.permissions?.can_see_roi !== false && t.roi > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                     <span style={{ fontSize: '9px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Savings</span>
                     <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-secondary)' }}>
@@ -460,6 +463,7 @@ function FeaturedCarousel({ tools, onOpen }) {
 }
 
 export default function CatalogView() {
+  const user = useAuthStore((s) => s.user);
   const nav = useNavigate();
   const { tools, query, activeCategory, setQuery, setCategory, categories, filtered, loading, load } = useCatalogStore();
   const [adding, setAdding] = useState(false);
@@ -557,9 +561,11 @@ export default function CatalogView() {
         >
           <Layers size={15} /> {compareMode ? 'Exit Comparison' : 'Compare products'}
         </button>
-        <button onClick={() => setAdding(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: 13.5 }}>
-          <Plus size={16} /> Submit a tool
-        </button>
+        {user?.permissions?.can_submit_tools !== false && (
+          <button onClick={() => setAdding(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: 13.5 }}>
+            <Plus size={16} /> Submit a tool
+          </button>
+        )}
       </div>
 
       {/* Tab Navigation */}
@@ -801,7 +807,7 @@ export default function CatalogView() {
                     { label: 'Owner & Contact', fn: (item) => item.owner },
                     { label: 'Department', fn: (item) => item.department || '—' },
                     { label: 'Deployed Client', fn: (item) => item.account || 'None' },
-                    { label: 'Annual ROI Savings', fn: (item) => item.roi ? `$${Math.round(item.roi).toLocaleString()}/yr` : '$0/yr' },
+                    { label: 'Annual ROI Savings', fn: (item) => user?.permissions?.can_see_roi !== false ? (item.roi ? `$${Math.round(item.roi).toLocaleString()}/yr` : '$0/yr') : 'Confidential' },
                     { label: 'Awards & Verifications', fn: (item) => (item.badges || []).length > 0 ? (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                         {item.badges.map((b, i) => (

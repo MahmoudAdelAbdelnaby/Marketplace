@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ShieldCheck, Key, Users, Settings, BarChart2, Check, Trash2, ArrowUpDown, Sparkles, UserPlus, Eye, Play, Mail, FileText, Zap, Activity, Search, MousePointerClick, GitPullRequest, Bot, Star, GripVertical, Vote, Send, UserCheck } from 'lucide-react';
 import { api } from '../../api';
 import { useAuthStore } from '../../store/useAuthStore';
+import AccessControlTab from './AccessControlTab';
 
 const ROLES = ['viewer', 'product_owner', 'committee', 'approver', 'admin'];
 const ROLE_LABEL = { waiting: 'Waiting', viewer: 'Viewer', product_owner: 'Product Owner', committee: 'Committee (Reviewer)', approver: 'Approver', admin: 'Admin' };
@@ -62,7 +63,7 @@ export default function AdminCenter() {
   const [inviteRole, setInviteRole] = useState('viewer');
 
   // Navigation tab states
-  const [adminTab, setAdminTab] = useState('users');
+  const [adminTab, setAdminTab] = useState('access');
   const [analyticsSubTab, setAnalyticsSubTab] = useState('time_spent');
 
   // AI credits editing states
@@ -800,7 +801,7 @@ export default function AdminCenter() {
 
   if (me?.role !== 'admin') return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Admins only.</div>;
 
-  const TAB_ICONS = { users: Users, routing: Settings, sorting: ArrowUpDown, keys: Key, analytics: BarChart2 };
+  const TAB_ICONS = { access: ShieldCheck, users: Users, routing: Settings, sorting: ArrowUpDown, keys: Key, analytics: BarChart2 };
 
   return (
     <div style={{ position: 'relative', zIndex: 1, maxWidth: 1020, margin: '0 auto', padding: '32px 24px' }}>
@@ -811,7 +812,7 @@ export default function AdminCenter() {
         <div>
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 800, margin: 0, letterSpacing: '-0.02em' }}>Admin Center</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
-            Manage users, routing, catalog sorting, AI keys, and telemetry.
+            Manage users, organizations, permissions, routing, catalog sorting, AI keys, and telemetry.
           </p>
         </div>
       </div>
@@ -826,6 +827,7 @@ export default function AdminCenter() {
       {/* TABS HEADER */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, borderBottom: '2px solid var(--border-color)', marginBottom: 24, paddingBottom: 0, marginTop: 20 }}>
         {[
+          { id: 'access', label: 'Access Control' },
           { id: 'users', label: 'Users & Roles' },
           { id: 'routing', label: 'Idea Routing' },
           { id: 'sorting', label: 'Catalog Sorting' },
@@ -861,6 +863,11 @@ export default function AdminCenter() {
           );
         })}
       </div>
+
+      {/* TAB CONTENT: ACCESS CONTROL */}
+      {adminTab === 'access' && (
+        <AccessControlTab api={api} />
+      )}
 
       {/* TAB CONTENT: USERS & ROLES */}
       {adminTab === 'users' && (

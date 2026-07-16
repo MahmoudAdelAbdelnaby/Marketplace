@@ -299,11 +299,19 @@ export default function ToolForm({ tool, onClose }) {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div><label style={lbl}>Maturity</label><select value={f.status} onChange={set('status')}><option value="pilot">Pilot</option><option value="active">Active</option><option value="implemented">Implemented</option><option value="retired">Retired</option></select></div>
-              <div><label style={lbl}>ROI ($/yr)</label><input type="number" value={f.roi} onChange={set('roi')} placeholder="0" /></div>
+              {user?.permissions?.can_see_roi !== false ? (
+                <div><label style={lbl}>ROI ($/yr)</label><input type="number" value={f.roi} onChange={set('roi')} placeholder="0" /></div>
+              ) : (
+                <div><label style={lbl}>ROI ($/yr)</label><input type="text" value="Confidential" disabled style={{ background: 'var(--bg-main)', cursor: 'not-allowed', color: 'var(--text-muted)' }} /></div>
+              )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div><label style={lbl}>Deployed Client Account</label><input value={f.account} onChange={set('account')} placeholder="e.g. Concentrix" /></div>
+              {user?.permissions?.can_see_client_names !== false ? (
+                <div><label style={lbl}>Deployed Client Account</label><input value={f.account} onChange={set('account')} placeholder="e.g. Concentrix" /></div>
+              ) : (
+                <div><label style={lbl}>Deployed Client Account</label><input type="text" value="Confidential Client" disabled style={{ background: 'var(--bg-main)', cursor: 'not-allowed', color: 'var(--text-muted)' }} /></div>
+              )}
               <div><label style={lbl}>Time to Deploy / Reproduce</label><input value={f.time_to_deploy} onChange={set('time_to_deploy')} placeholder="e.g. 2 weeks, 1 month" /></div>
             </div>
             <div>
@@ -677,10 +685,12 @@ export default function ToolForm({ tool, onClose }) {
               </div>
               <div style={{ marginTop: 8 }}>
                 <label style={lbl}>Live Demo Type</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 12, marginTop: 6 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: user?.permissions?.can_push_live_demos !== false ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)', gap: 10, marginBottom: 12, marginTop: 6 }}>
                   {[
                     { id: 'html', icon: '📄', title: 'HTML Demo', desc: 'Single self-contained .html file' },
-                    { id: 'container', icon: '📦', title: 'Live Application', desc: 'Full app as ZIP, runs in a container' },
+                    ...(user?.permissions?.can_push_live_demos !== false ? [
+                      { id: 'container', icon: '📦', title: 'Live Application', desc: 'Full app as ZIP, runs in a container' }
+                    ] : []),
                     { id: 'url', icon: '🔗', title: 'External URL', desc: 'Link to an already-hosted demo' },
                   ].map((opt) => {
                     const sel = (f.demo_type || 'html') === opt.id;
@@ -861,7 +871,7 @@ export default function ToolForm({ tool, onClose }) {
               <div><b>Category:</b> {f.category || '—'}</div>
               <div><b>Maturity:</b> {f.status}</div>
               <div><b>Section:</b> {IMPL.find(i => i.id === f.implementation_status)?.label}</div>
-              <div><b>ROI:</b> {f.roi ? `$${Number(f.roi).toLocaleString()}/yr` : '—'}</div>
+              <div><b>ROI:</b> {user?.permissions?.can_see_roi !== false ? (f.roi ? `$${Number(f.roi).toLocaleString()}/yr` : '—') : 'Confidential'}</div>
               <div style={{ gridColumn: '1 / -1' }}><b>Problem:</b> {f.problem ? (f.problem.length > 160 ? f.problem.slice(0, 160) + '…' : f.problem) : '—'}</div>
               <div><b>Demo:</b> {f.demo_type === 'container' ? (demoZipName || (editing && tool.demo_zip_url ? 'ZIP attached' : 'ZIP missing')) : f.demo_type === 'url' ? (f.demo_url || 'URL missing') : (demoName || (editing && tool.has_demo ? 'HTML attached' : 'HTML missing'))}</div>
               <div><b>Video:</b> {f.video_url ? '✓' : '—'} &nbsp; <b>Deck:</b> {f.ppt_url ? '✓' : '—'} &nbsp; <b>Stories:</b> {successStories.length}</div>
