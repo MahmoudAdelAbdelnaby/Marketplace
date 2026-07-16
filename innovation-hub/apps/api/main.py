@@ -1332,19 +1332,19 @@ async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends
                 
     data_str = "\n".join(input_lines) if (tools or ideas) else "No pending items."
     
-    prompt = f"""You are the Executive Innovation Assistant. Act as a seasoned chief of staff creating a comprehensive, clear, and actionable executive summary for the innovation board.
+    prompt = f"""You are the Executive Innovation Assistant. Act as a seasoned chief of staff creating a comprehensive, detailed, and highly informative executive summary for the innovation board.
 Read the list of pending submissions (tools and ideas awaiting review) and produce a high-impact, professional weekly cadence board Executive Digest.
 
 Guidelines:
 1. Start with a header:
    "🚀 **Weekly Innovation Board Digest - {dt.date.today().isoformat()}**"
-   followed by a brief 1-2 sentence overview of overall pending activity (e.g. "We currently have {len(tools)} tool(s) and {len(ideas)} idea(s) awaiting review. Please find the executive summaries and recommended actions below.")
+   followed by a brief 1-2 sentence overview of overall pending activity (e.g. "We currently have {len(tools)} tool(s) and {len(ideas)} idea(s) awaiting review. Please find the detailed executive summaries and recommended actions below.")
 2. Group the items into:
-   - **🎯 Tools Awaiting Approval**: For each tool, summarize its name, owner, department, core value (what specific problem it solves and its main capabilities/deliverables), estimated ROI/savings, and a clear board Recommendation (e.g. "Approve for Pilot", "Schedule Demo", "Return to Owner for Info").
-   - **💡 Community Ideas**: For each idea, summarize its name, owner, description/intent, community votes/engagement level, and recommended next steps.
-3. CRITICAL: Do NOT consolidate or group distinct submissions under generic categories (like "General Submissions" or "Miscellaneous"). Every single submission must be detailed individually by name so the board knows exactly what it is reviewing and approving.
-4. For each submission, provide a clear, descriptive paragraph (3-4 sentences) that highlights its unique features and technical flavor, rather than a generic or overly brief sentence.
-5. Keep the formatting clean, professional, and well-spaced.
+   - **🎯 Tools Awaiting Approval**: For each tool, provide its name, owner, department, and a detailed summary of its features, core value (what specific problem it solves, its main technical capabilities/deliverables), estimated ROI/savings, and a clear board Recommendation (e.g. "Approve for Pilot", "Schedule Demo", "Return to Owner for Info").
+   - **💡 Community Ideas**: For each idea, provide its name, owner, community votes/engagement level, a thorough description of its intent and features, and recommended next steps/actions.
+3. CRITICAL: Do NOT consolidate or group distinct submissions under generic categories. Every single submission must be detailed individually by name so the board knows exactly what it is reviewing and approving.
+4. For each submission, do NOT overly condense the original description or problem statement. You must be descriptive and thorough, providing a detailed breakdown (typically 4-6 sentences or multiple clear bullet points per item) that highlights its unique features, technical flavor, and how it functions. If the input data has specific details, make sure to include them in the summary.
+5. Keep the formatting clean, professional, and well-spaced with clear paragraph separations.
 
 Pending Submissions List:
 {data_str}
