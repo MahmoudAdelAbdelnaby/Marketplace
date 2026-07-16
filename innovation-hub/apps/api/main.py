@@ -1304,6 +1304,131 @@ def review_digest(u: User = Depends(current_user), s: Session = Depends(get_sess
     return {"markdown": "\n".join(lines), "tool_count": len(tools), "idea_count": len(ideas)}
 
 
+@app.post("/review/ai-digest")
+async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends(get_session)):
+    """Generates an AI executive digest of all pending tools and ideas using Gemini/OpenAI."""
+    if u.role not in REVIEWER_ROLES:
+        raise HTTPException(403, "Reviewers only")
+        
+    tools = s.exec(select(Tool).where(Tool.review_status.in_(["pending", "changes"])).order_by(Tool.created_at)).all()
+    ideas = s.exec(select(Idea).where(Idea.status == "proposed").order_by(Idea.created_at)).all()
+    
+    input_lines = []
+    if tools:
+        input_lines.append("Tools Awaiting Review:")
+        for t in tools:
+            roi_str = f"${t.roi:,.0f}/yr" if t.roi else "no ROI claimed"
+            input_lines.append(f"- Name: {t.name} | Category: {t.category} | Owner: {t.owner} | ROI: {roi_str}")
+            input_lines.append(f"  Problem: {t.problem}")
+            if t.capabilities:
+                input_lines.append(f"  Capabilities: {t.capabilities}")
+            input_lines.append(f"  Review Status: {t.review_status}")
+    if ideas:
+        input_lines.append("Proposed Ideas:")
+        for i in ideas:
+            input_lines.append(f"- Title: {i.name} | Owner: {i.owner} | Votes: {i.votes}")
+            if getattr(i, "description", None):
+                input_lines.append(f"  Description: {i.description}")
+                
+    data_str = "\n".join(input_lines) if (tools or ideas) else "No pending items."
+    
+    prompt = f"""You are the Executive Innovation Assistant. Act as an assistant creating an executive summary for the board to review and approve.
+Read the following list of pending submissions (tools and ideas awaiting review) and produce a high-impact, professional, ready-to-paste weekly cadence channel Executive Digest.
+
+Guidelines:
+1. Start with a header like:
+   "🚀 **Weekly Innovation Board Digest - {dt.date.today().isoformat()}**"
+   followed by a brief 1-2 sentence overview of overall pending activity (e.g. "We currently have {len(tools)} tool(s) and {len(ideas)} idea(s) awaiting review. Below is the executive summary and recommended action for each.")
+2. Group the items into:
+   - **🎯 Tools Awaiting Approval**: Summarize each tool's core value, and give a clear board Recommendation (e.g. "Approve for Pilot", "Schedule Demo", "Return to Owner for Info").
+   - **💡 Community Ideas**: Summarize proposed ideas, noting community votes/demand, and suggest next steps.
+3. For each item, keep it concise (2-3 sentences max) but complete. Highlight estimated ROI or community impact.
+4. Keep the format clean, well-spaced, and actionable for board members.
+
+Pending Submissions List:
+{data_str}
+"""
+
+    start_time = time.time()
+    
+    def record_usage(prompt_str, response_str, provider_name, key_label, key_used_val):
+        latency = time.time() - start_time
+        u.ai_usage += 1
+        s.add(u)
+        audit = AIAuditLog(
+            user_id=u.id,
+            user_name=u.name or u.email,
+            prompt="[AI Executive Digest Generation]",
+            response=response_str[:500] + "...",
+            provider=provider_name,
+            api_key_used=key_label or "key",
+            latency_seconds=round(latency, 2),
+            prompt_chars=len(prompt_str),
+            response_chars=len(response_str)
+        )
+        s.add(audit)
+        s.commit()
+
+    provider = u.ai_provider or "local"
+    personal_key = u.ai_key
+    res_text = None
+    via = None
+    
+    if u.role == "admin" and provider != "local" and personal_key:
+        try:
+            if provider == "gemini":
+                res_text = await _gemini(personal_key, prompt)
+                record_usage(prompt, res_text, "gemini", "Personal Key", personal_key)
+                via = "personal gemini"
+            elif provider == "openai":
+                res_text = await _openai(personal_key, prompt)
+                record_usage(prompt, res_text, "openai", "Personal Key", personal_key)
+                via = "personal openai"
+        except Exception as e:
+            print(f"AI Digest: Personal key failed, trying global pool. Error: {e}")
+            
+    if not res_text:
+        global_keys = s.exec(select(GlobalApiKey).where(GlobalApiKey.is_active == True).order_by(GlobalApiKey.id)).all()
+        today_str = time.strftime("%Y-%m-%d")
+        for gkey in global_keys:
+            if gkey.last_used_date != today_str:
+                gkey.last_used_date = today_str
+                gkey.daily_requests_count = 0
+                s.add(gkey)
+                s.commit()
+            if gkey.daily_requests_count >= getattr(gkey, "daily_limit", 1000):
+                continue
+            try:
+                if gkey.provider == "gemini":
+                    res_text = await _gemini(gkey.key_value, prompt)
+                    gkey.requests_count += 1
+                    gkey.daily_requests_count += 1
+                    s.add(gkey)
+                    record_usage(prompt, res_text, "gemini", gkey.label or f"Global Key {gkey.id}", gkey.key_value)
+                    via = f"global {gkey.label or 'key'}"
+                    break
+                elif gkey.provider == "openai":
+                    res_text = await _openai(gkey.key_value, prompt)
+                    gkey.requests_count += 1
+                    gkey.daily_requests_count += 1
+                    s.add(gkey)
+                    record_usage(prompt, res_text, "openai", gkey.label or f"Global Key {gkey.id}", gkey.key_value)
+                    via = f"global {gkey.label or 'key'}"
+                    break
+            except Exception as e:
+                print(f"AI Digest: Global key {gkey.label} failed. Error: {e}")
+                
+    if not res_text:
+        try:
+            model = getattr(u, "ai_model", None) or OLLAMA_MODEL
+            res_text = await _ollama(model, prompt)
+            via = f"local ({model})"
+        except Exception as e:
+            raise HTTPException(502, f"AI generation failed. Key pool exhausted, and local model is offline. Error: {e}")
+            
+    return {"digest": res_text, "via": via}
+
+
 @app.post("/tools/{tool_id}/vote")
 def vote_tool(tool_id: int, u: User = Depends(current_user), s: Session = Depends(get_session)):
     t = s.get(Tool, tool_id)

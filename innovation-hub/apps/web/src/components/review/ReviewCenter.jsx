@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ClipboardCheck, Check, RotateCcw, Ban, Search, Trash2, ChevronDown, ChevronUp, Layers, Wrench, FolderArchive, User, Building, Landmark, DollarSign, Calendar, MessageSquare, Copy } from 'lucide-react';
+import { ClipboardCheck, Check, RotateCcw, Ban, Search, Trash2, ChevronDown, ChevronUp, Layers, Wrench, FolderArchive, User, Building, Landmark, DollarSign, Calendar, MessageSquare, Copy, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -471,6 +471,8 @@ export default function ReviewCenter() {
   const [tab, setTab] = useState('ideas');
   const [search, setSearch] = useState('');
   const [digestCopied, setDigestCopied] = useState(false);
+  const [aiDigestCopied, setAiDigestCopied] = useState(false);
+  const [generatingAi, setGeneratingAi] = useState(false);
 
   const load = () => {
     api('/review/tools').then(setTools).catch(() => {});
@@ -575,6 +577,34 @@ export default function ReviewCenter() {
           }}
         >
           {digestCopied ? <><Check size={14} /> Copied to clipboard!</> : <><Copy size={14} /> Copy Committee Digest</>}
+        </button>
+        <button
+          type="button"
+          disabled={generatingAi}
+          onClick={async () => {
+            setGeneratingAi(true);
+            try {
+              const res = await api('/review/ai-digest', { method: 'POST' });
+              await navigator.clipboard.writeText(res.digest);
+              setAiDigestCopied(true);
+              setTimeout(() => setAiDigestCopied(false), 2500);
+            } catch (e) { alert('Failed to generate AI executive digest: ' + e.message); }
+            finally { setGeneratingAi(false); }
+          }}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8,
+            border: '1px solid var(--border-color)', background: aiDigestCopied ? 'var(--success)' : 'var(--bg-card)',
+            color: aiDigestCopied ? '#fff' : 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer', transition: 'all 0.2s',
+            opacity: generatingAi ? 0.65 : 1
+          }}
+        >
+          {generatingAi ? (
+            <>Generating executive digest...</>
+          ) : aiDigestCopied ? (
+            <><Check size={14} /> AI Digest Copied!</>
+          ) : (
+            <><Sparkles size={14} style={{ color: 'var(--primary)' }} /> Copy AI Executive Digest</>
+          )}
         </button>
       </div>
 
