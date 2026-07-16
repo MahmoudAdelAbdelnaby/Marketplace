@@ -560,6 +560,7 @@ export default function ReviewCenter() {
   const [digestCopied, setDigestCopied] = useState(false);
   const [aiDigestCopied, setAiDigestCopied] = useState(false);
   const [generatingAi, setGeneratingAi] = useState(false);
+  const [previewText, setPreviewText] = useState('');
 
   const load = () => {
     api('/review/tools').then(setTools).catch(() => {});
@@ -652,18 +653,16 @@ export default function ReviewCenter() {
           onClick={async () => {
             try {
               const res = await api('/review/digest');
-              await copyTextAndHtmlToClipboard(res.markdown);
-              setDigestCopied(true);
-              setTimeout(() => setDigestCopied(false), 2500);
+              setPreviewText(res.markdown);
             } catch (e) { alert('Failed to generate digest: ' + e.message); }
           }}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8,
-            border: '1px solid var(--border-color)', background: digestCopied ? 'var(--success)' : 'var(--bg-card)',
-            color: digestCopied ? '#fff' : 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer', transition: 'all 0.2s'
+            border: '1px solid var(--border-color)', background: 'var(--bg-card)',
+            color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer', transition: 'all 0.2s'
           }}
         >
-          {digestCopied ? <><Check size={14} /> Copied to clipboard!</> : <><Copy size={14} /> Copy Committee Digest</>}
+          <Copy size={14} /> Generate Committee Digest
         </button>
         <button
           type="button"
@@ -672,25 +671,21 @@ export default function ReviewCenter() {
             setGeneratingAi(true);
             try {
               const res = await api('/review/ai-digest', { method: 'POST' });
-              await copyTextAndHtmlToClipboard(res.digest);
-              setAiDigestCopied(true);
-              setTimeout(() => setAiDigestCopied(false), 2500);
+              setPreviewText(res.digest);
             } catch (e) { alert('Failed to generate AI executive digest: ' + e.message); }
             finally { setGeneratingAi(false); }
           }}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8,
-            border: '1px solid var(--border-color)', background: aiDigestCopied ? 'var(--success)' : 'var(--bg-card)',
-            color: aiDigestCopied ? '#fff' : 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer', transition: 'all 0.2s',
+            border: '1px solid var(--border-color)', background: 'var(--bg-card)',
+            color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer', transition: 'all 0.2s',
             opacity: generatingAi ? 0.65 : 1
           }}
         >
           {generatingAi ? (
             <>Generating executive digest...</>
-          ) : aiDigestCopied ? (
-            <><Check size={14} /> AI Digest Copied!</>
           ) : (
-            <><Sparkles size={14} style={{ color: 'var(--primary)' }} /> Copy AI Executive Digest</>
+            <><Sparkles size={14} style={{ color: 'var(--primary)' }} /> Generate AI Executive Digest</>
           )}
         </button>
       </div>
@@ -733,6 +728,71 @@ export default function ReviewCenter() {
           </>
         )}
       </div>
+      {previewText && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+            padding: 24, borderRadius: 16, width: '90%', maxWidth: 650,
+            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)', position: 'relative'
+          }}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: 18, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              🚀 Generated Digest Preview
+            </h3>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+              Review or edit the summary below. Click <b>Copy to Clipboard</b> to copy the rich-text format directly for Outlook or Teams.
+            </p>
+            
+            <textarea
+              value={previewText}
+              onChange={(e) => setPreviewText(e.target.value)}
+              style={{
+                width: '100%', height: 280, padding: 12, borderRadius: 8,
+                border: '1px solid var(--border-color)', background: 'var(--bg-main)',
+                color: 'var(--text-primary)', fontSize: 13, fontFamily: 'monospace',
+                resize: 'none', marginBottom: 20
+              }}
+            />
+            
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <button
+                type="button"
+                onClick={() => setPreviewText('')}
+                style={{
+                  padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border-color)',
+                  background: 'var(--bg-card)', color: 'var(--text-primary)', cursor: 'pointer',
+                  fontWeight: 600, fontSize: 13
+                }}
+              >
+                Cancel
+              </button>
+              
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await copyTextAndHtmlToClipboard(previewText);
+                    setPreviewText('');
+                    alert('Copied to clipboard as formatted rich text!');
+                  } catch (e) {
+                    alert('Copy failed: ' + e.message);
+                  }
+                }}
+                style={{
+                  padding: '8px 20px', borderRadius: 8, border: 'none',
+                  background: 'var(--primary)', color: '#fff', cursor: 'pointer',
+                  fontWeight: 600, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6
+                }}
+              >
+                <Copy size={14} /> Copy to Clipboard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
