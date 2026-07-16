@@ -213,6 +213,87 @@ function ReviewCard({ item, type, onDone, me, archived = false, allIdeas = [], o
             )}
           </div>
         )}
+        
+        {item.demo_type === 'container' && (
+          <div style={{ marginTop: 14, padding: 16, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
+            <h4 style={{ margin: '0 0 10px', fontSize: 13.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-primary)' }}>
+              <Layers size={14} color="var(--primary)" />
+              AI Code Audit & Container Build Status
+            </h4>
+            
+            {item.demo_security_report && (() => {
+              try {
+                const audit = JSON.parse(item.demo_security_report);
+                return (
+                  <div style={{ 
+                    marginBottom: 12, 
+                    padding: 12, 
+                    background: audit.decision === 'flag' ? '#fef2f2' : 'rgba(34,197,94,0.05)', 
+                    border: audit.decision === 'flag' ? '1px solid #fee2e2' : '1px solid rgba(34,197,94,0.15)',
+                    borderRadius: 8,
+                    fontSize: 12.5
+                  }}>
+                    <div style={{ fontWeight: 700, color: audit.decision === 'flag' ? '#b91c1c' : '#15803d', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <span>AI Audit Security Decision: {audit.decision?.toUpperCase()}</span>
+                    </div>
+                    <div style={{ color: audit.decision === 'flag' ? '#991b1b' : 'var(--text-secondary)' }}>
+                      <b>AI Analysis:</b> {audit.reason}
+                    </div>
+                    {audit.tech_stack && <div style={{ marginTop: 4, fontSize: 11.5, color: 'var(--text-muted)' }}><b>Detected Tech:</b> {audit.tech_stack}</div>}
+                  </div>
+                );
+              } catch(e) {
+                return <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>Audit: {item.demo_security_report}</div>;
+              }
+            })()}
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+              <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
+                Container Status: <span style={{ fontWeight: 700, color: item.demo_container_status === 'running' ? '#22c55e' : item.demo_container_status === 'building' ? '#3b82f6' : '#ef4444' }}>{item.demo_container_status?.toUpperCase()}</span>
+                {item.demo_container_port ? ` (Port: ${item.demo_container_port})` : ''}
+              </div>
+              
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!window.confirm("Trigger AI security scan and start container rebuild?")) return;
+                  try {
+                    await api(`/tools/${item.id}/demo/build`, { method: 'POST' });
+                    alert("Build triggered successfully!");
+                    onDone();
+                  } catch(e2) {
+                    alert("Build failed: " + e2.message);
+                  }
+                }}
+                style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}
+              >
+                Run AI Audit & Rebuild Demo
+              </button>
+            </div>
+
+            {item.demo_container_build_logs && (
+              <div style={{ marginTop: 12 }}>
+                <details style={{ fontSize: 12 }}>
+                  <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--text-secondary)' }}>Show Container Build Logs</summary>
+                  <pre style={{ 
+                    marginTop: 8, 
+                    background: '#090d16', 
+                    color: '#e2e8f0', 
+                    padding: 12, 
+                    borderRadius: 6, 
+                    maxHeight: 250, 
+                    overflowY: 'auto',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 11,
+                    whiteSpace: 'pre-wrap'
+                  }}>
+                    {item.demo_container_build_logs}
+                  </pre>
+                </details>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {archived ? (
