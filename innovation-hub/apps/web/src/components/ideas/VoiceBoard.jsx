@@ -72,9 +72,11 @@ export default function VoiceBoard() {
     <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '1400px', margin: '0 auto', padding: '32px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10 }}><Megaphone /> Voice of Clients</h1>
-        <button onClick={() => setIsFormOpen(!isFormOpen)} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: 13.5, cursor: 'pointer' }}>
-          <Plus size={16} /> Submit a Problem
-        </button>
+        {user?.permissions?.can_submit_voc !== false && (
+          <button onClick={() => setIsFormOpen(!isFormOpen)} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: 13.5, cursor: 'pointer' }}>
+            <Plus size={16} /> Submit a Problem
+          </button>
+        )}
       </div>
       <p style={{ color: 'var(--text-secondary)', marginBottom: 22 }}>Have a problem statement from a client or operations but lack the tools to solve it? Submit it here so innovators can ideate solutions.</p>
 
@@ -112,7 +114,7 @@ export default function VoiceBoard() {
         )}
       </div>
 
-      {isFormOpen && (
+      {isFormOpen && user?.permissions?.can_submit_voc !== false && (
         <form onSubmit={handleSubmit} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 24, marginBottom: 24 }}>
           <h3 style={{ margin: '0 0 16px', fontSize: 18, fontFamily: 'var(--font-display)' }}>Submit a Problem Statement</h3>
           

@@ -311,3 +311,8 @@ label {
 }
 
 @media print { header, aside { display: none !important; } main { width: 100% !important; padding: 0 !important; } .lucide { display: none !important; } button { display: none !important; } body { background: white !important; color: black !important; } * { box-shadow: none !important; } }
+
+input[type="checkbox"], input[type="radio"] {
+  width: auto;
+  margin: 0;
+}

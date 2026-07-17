@@ -19,6 +19,8 @@ export default function AccessControlTab({ api }) {
     can_submit_tools: true,
     can_submit_ideas: true,
     can_push_live_demos: true,
+    can_view_voc: true,
+    can_submit_voc: true,
     allowed_categories: ['all'],
     allowed_pages: ['catalog', 'roadmap', 'matchmaker', 'insights', 'settings']
   });
@@ -104,20 +106,28 @@ export default function AccessControlTab({ api }) {
       };
       const res = await api('/admin/invites', { method: 'POST', body: payload });
       
-      const inviteUrl = `${window.location.origin}/register?token=${res.token}`;
-      setInviteEmail('');
-      setInviteOrgId('');
-      setInviteRole('viewer');
-      
-      // Attempt pre-compose email client
-      const subject = encodeURIComponent("You're invited to join Concentrix Marketplace");
-      const bodyText = encodeURIComponent(
-        `Hi,\n\nYou have been invited to join the Concentrix Marketplace.\n\nPlease complete your registration using this secure link:\n\n${inviteUrl}\n\nThis token is valid for 7 days.`
-      );
-      window.location.href = `mailto:${res.email}?subject=${subject}&body=${bodyText}`;
+      if (res.direct_added) {
+        showSuccess(`User ${inviteEmail} was already registered and has been directly added to the organization!`);
+        setInviteEmail('');
+        setInviteOrgId('');
+        setInviteRole('viewer');
+        loadAll();
+      } else {
+        const inviteUrl = `${window.location.origin}/register?token=${res.token}`;
+        setInviteEmail('');
+        setInviteOrgId('');
+        setInviteRole('viewer');
+        
+        // Attempt pre-compose email client
+        const subject = encodeURIComponent("You're invited to join Concentrix Marketplace");
+        const bodyText = encodeURIComponent(
+          `Hi,\n\nYou have been invited to join the Concentrix Marketplace.\n\nPlease complete your registration using this secure link:\n\n${inviteUrl}\n\nThis token is valid for 7 days.`
+        );
+        window.location.href = `mailto:${res.email}?subject=${subject}&body=${bodyText}`;
 
-      alert(`Invite token generated!\n\nIf your email client didn't open automatically, copy this registration link:\n\n${inviteUrl}`);
-      loadAll();
+        alert(`Invite token generated!\n\nIf your email client didn't open automatically, copy this registration link:\n\n${inviteUrl}`);
+        loadAll();
+      }
     } catch (err) {
       setError(err.message || 'Failed to create invitation');
     }
@@ -375,49 +385,70 @@ export default function AccessControlTab({ api }) {
         </div>
 
         {/* Add Org Form */}
-        <div style={{ padding: 22, background: 'var(--bg-card)', borderRadius: 16, border: '1px solid var(--border-color)', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
-          <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Add Organization</h2>
-          <form onSubmit={handleCreateOrg} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ padding: 24, background: 'var(--bg-card)', borderRadius: 16, border: '1px solid var(--border-color)', boxShadow: '0 10px 30px rgba(0,0,0,0.08)' }}>
+          <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-primary)' }}>
+            <Building size={18} style={{ color: 'var(--primary)' }} /> Add Organization
+          </h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 16 }}>Create a new external partner organization and define their default platform permissions.</p>
+          <form onSubmit={handleCreateOrg} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4, fontWeight: 600 }}>Org Name</label>
+              <label style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Org Name</label>
               <input 
                 type="text"
                 required
-                placeholder="Acme Corporation"
+                placeholder="e.g. Acme Corporation"
                 value={newOrgName}
                 onChange={e => setNewOrgName(e.target.value)}
-                style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-body)', color: 'var(--text-primary)', fontSize: 13 }}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13, transition: 'all 0.2s' }}
+                className="input-focus"
               />
             </div>
             
             <div>
-              <label style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6, fontWeight: 600 }}>Default Permissions</label>
+              <label style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Default Permissions</label>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {[
                   { key: 'can_see_roi', label: 'Allow ROI figures' },
                   { key: 'can_see_client_names', label: 'Allow client names' },
                   { key: 'can_submit_tools', label: 'Allow tool submissions' },
                   { key: 'can_submit_ideas', label: 'Allow idea proposals' },
-                  { key: 'can_push_live_demos', label: 'Allow live container uploads' }
-                ].map(p => (
-                  <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
-                    <input 
-                      type="checkbox"
-                      checked={newOrgPerms[p.key]}
-                      onChange={() => toggleNewOrgPerm(p.key)}
-                      style={{ cursor: 'pointer' }}
-                    />
-                    {p.label}
-                  </label>
-                ))}
+                  { key: 'can_push_live_demos', label: 'Allow live container uploads' },
+                  { key: 'can_view_voc', label: 'Allow VOC viewing' },
+                  { key: 'can_submit_voc', label: 'Allow VOC submissions' }
+                ].map(p => {
+                  const isActive = newOrgPerms[p.key];
+                  return (
+                    <div 
+                      key={p.key}
+                      onClick={() => toggleNewOrgPerm(p.key)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                        borderRadius: 8, border: '1px solid var(--border-color)',
+                        background: isActive ? 'var(--secondary)' : 'var(--bg-main)',
+                        cursor: 'pointer', transition: 'all 0.15s',
+                        borderLeft: isActive ? '3.5px solid var(--primary)' : '1px solid var(--border-color)'
+                      }}
+                      onMouseOver={e => { if(!isActive) e.currentTarget.style.borderColor = 'var(--primary)' }}
+                      onMouseOut={e => { if(!isActive) e.currentTarget.style.borderColor = 'var(--border-color)' }}
+                    >
+                      <input 
+                        type="checkbox"
+                        checked={isActive}
+                        onChange={() => {}} // Click is handled by the parent div
+                        style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
+                      />
+                      <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{p.label}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
             <button 
               type="submit"
-              style={{ width: '100%', padding: '10px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer', fontSize: 13 }}
+              style={{ width: '100%', padding: '11px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer', fontSize: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all 0.2s' }}
             >
-              Create Org
+              <Plus size={16} /> Create Organization
             </button>
           </form>
         </div>
@@ -593,7 +624,9 @@ export default function AccessControlTab({ api }) {
                   { key: 'can_see_client_names', label: 'Can see Client names' },
                   { key: 'can_submit_tools', label: 'Can submit tools' },
                   { key: 'can_submit_ideas', label: 'Can submit ideas' },
-                  { key: 'can_push_live_demos', label: 'Can upload live container demos' }
+                  { key: 'can_push_live_demos', label: 'Can upload live container demos' },
+                  { key: 'can_view_voc', label: 'Can view VOC feedback' },
+                  { key: 'can_submit_voc', label: 'Can submit VOC feedback' }
                 ].map(item => {
                   const hasOverride = editPerms[item.key] !== undefined;
                   const isOverriddenVal = editPerms[item.key];

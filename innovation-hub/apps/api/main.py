@@ -435,7 +435,10 @@ SYSTEM_DEFAULTS = {
     "can_submit_tools": True,
     "can_submit_ideas": True,
     "can_push_live_demos": True,
+    "can_view_voc": True,
+    "can_submit_voc": True,
     "allowed_categories": ["all"],
+    "allowed_tools": ["all"],
     "allowed_pages": ["catalog", "roadmap", "matchmaker", "insights", "settings"],
     "ai_credits_override": 5
 }
@@ -448,7 +451,10 @@ def get_effective_permissions(u: User, s: Session) -> dict:
             "can_submit_tools": True,
             "can_submit_ideas": True,
             "can_push_live_demos": True,
+            "can_view_voc": True,
+            "can_submit_voc": True,
             "allowed_categories": ["all"],
+            "allowed_tools": ["all"],
             "allowed_pages": ["catalog", "roadmap", "matchmaker", "insights", "settings"],
             "ai_credits_override": 9999
         }
@@ -656,6 +662,10 @@ def list_tools(u: Optional[User] = Depends(optional_user), s: Session = Depends(
         allowed_cats = perms.get("allowed_categories", ["all"])
         if "all" not in allowed_cats:
             rows = [t for t in rows if t.category in allowed_cats]
+        allowed_tls = perms.get("allowed_tools", ["all"])
+        if "all" not in allowed_tls:
+            allowed_ids = [int(x) for x in allowed_tls if str(x).isdigit()]
+            rows = [t for t in rows if t.id in allowed_ids]
     return [public_tool(t, u, s) for t in rows]
 
 
@@ -970,6 +980,11 @@ def get_tool(tool_id: int, u: Optional[User] = Depends(optional_user), s: Sessio
         allowed_cats = perms.get("allowed_categories", ["all"])
         if "all" not in allowed_cats and t.category not in allowed_cats:
             raise HTTPException(403, "Access to this category is restricted.")
+        allowed_tls = perms.get("allowed_tools", ["all"])
+        if "all" not in allowed_tls:
+            allowed_ids = [int(x) for x in allowed_tls if str(x).isdigit()]
+            if t.id not in allowed_ids:
+                raise HTTPException(403, "Access to this product is restricted.")
     return public_tool(t, u, s)
 
 
@@ -1681,8 +1696,10 @@ def review_idea(idea_id: int, body: ReviewIn, u: User = Depends(require("committ
 # ----------------------------------------------------------------- VOC
 @app.get("/voc")
 def get_vocs(u: User = Depends(current_user), s: Session = Depends(get_session)):
-    rows = s.exec(select(VocIssue).order_by(VocIssue.created_at.desc())).all()
     perms = get_effective_permissions(u, s)
+    if not perms.get("can_view_voc", True):
+        raise HTTPException(403, "Access denied. You do not have permission to view Voice of Clients feedback.")
+    rows = s.exec(select(VocIssue).order_by(VocIssue.created_at.desc())).all()
     if not perms.get("can_see_client_names", True):
         results = []
         for r in rows:
@@ -1694,6 +1711,9 @@ def get_vocs(u: User = Depends(current_user), s: Session = Depends(get_session))
 
 @app.post("/voc")
 def create_voc(body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    perms = get_effective_permissions(u, s)
+    if not perms.get("can_submit_voc", True):
+        raise HTTPException(403, "Access denied. You do not have permission to submit Voice of Clients feedback.")
     v = VocIssue(
         owner_id=u.id, owner_name=u.name,
         title=body.get("title", ""),
@@ -1773,24 +1793,31 @@ def create_invite(body: InviteIn, u: User = Depends(current_user), s: Session = 
         if invitee_idx > inviter_idx:
             raise HTTPException(403, f"You cannot invite someone with a higher role than yours ({u.role}).")
             
-    existing_user = s.exec(select(User).where(User.email == email)).first()
-    if existing_user:
-        raise HTTPException(400, "A user with this email is already registered.")
-        
-    old_inv = s.exec(select(Invitation).where(Invitation.email == email)).first()
-    if old_inv:
-        s.delete(old_inv)
-        
-    token = secrets.token_urlsafe(32)
-    expires_at = time.time() + (7 * 24 * 3600)
-    
     target_org_id = u.org_id
     if u.role == "admin" and body.org_id is not None:
         target_org_id = body.org_id
         
+    existing_user = s.exec(select(User).where(User.email == email)).first()
+    if existing_user:
+        if u.role != "admin":
+            try:
+                existing_idx = ROLES.index(existing_user.role)
+            except ValueError:
+                existing_idx = 0
+            if existing_idx > inviter_idx:
+                raise HTTPException(403, "Access denied. You cannot modify a user with a higher role than yours.")
+        
+    old_inv = s.exec(select(Invitation).where(Invitation.email == email)).first()
+    if old_inv:
+        s.delete(old_inv)
+        s.commit()
+        
+    token = secrets.token_urlsafe(32)
+    expires_at = time.time() + (7 * 24 * 3600)
+    
     inv = Invitation(email=email, token=token, role=body.role, expires_at=expires_at, org_id=target_org_id)
     s.add(inv); s.commit(); s.refresh(inv)
-    return {"token": inv.token, "email": inv.email, "role": inv.role, "org_id": inv.org_id}
+    return {"token": inv.token, "email": inv.email, "role": inv.role, "org_id": inv.org_id, "direct_added": False}
 
 
 @app.get("/admin/invites")
@@ -1870,6 +1897,178 @@ def admin_reset_ai_credits(u: User = Depends(require("admin")), s: Session = Dep
     s.exec(delete(AIAuditLog))
     s.commit()
     return {"ok": True}
+
+
+@app.get("/org/members")
+def list_org_members(org_id: Optional[int] = None, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    target_org_id = u.org_id
+    if u.role == "admin" and org_id is not None:
+        target_org_id = org_id
+        
+    if not target_org_id:
+        raise HTTPException(400, "User does not belong to an organization.")
+        
+    members = s.exec(select(User).where(User.org_id == target_org_id).order_by(User.created_at.desc())).all()
+    invites = s.exec(select(Invitation).where(Invitation.org_id == target_org_id).order_by(Invitation.created_at.desc())).all()
+    
+    org_name = "Concentrix Internal"
+    org = s.get(Organization, target_org_id)
+    if org:
+        org_name = org.name
+        
+    res_members = []
+    for m in members:
+        d = public_user(m)
+        d["org_name"] = org_name
+        res_members.append(d)
+        
+    return {
+        "members": res_members,
+        "invites": invites,
+        "org_name": org_name,
+        "org_id": target_org_id,
+        "org_default_permissions": org.default_permissions if org else {}
+    }
+
+
+@app.put("/org/members/{member_id}/permissions")
+def update_org_member_permissions(member_id: int, body: UserPermissionsIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    target = s.get(User, member_id)
+    if not target:
+        raise HTTPException(404, "Member not found")
+        
+    if u.role != "admin":
+        if target.org_id != u.org_id:
+            raise HTTPException(403, "Access denied. Target user belongs to a different organization.")
+        if body.org_id != u.org_id:
+            raise HTTPException(403, "Access denied. You cannot assign users to other organizations.")
+            
+        try:
+            caller_idx = ROLES.index(u.role)
+            target_idx = ROLES.index(target.role)
+            new_idx = ROLES.index(body.role)
+        except ValueError:
+            raise HTTPException(400, "Invalid role specified.")
+            
+        if caller_idx < 2:
+            raise HTTPException(403, "Access denied. You must be a Product Owner or higher to manage organization members.")
+        if target_idx > caller_idx:
+            raise HTTPException(403, "Access denied. You cannot modify a user with a higher role than yours.")
+        if new_idx > caller_idx:
+            raise HTTPException(403, "Access denied. You cannot assign a role higher than yours.")
+            
+    if body.role not in ROLES:
+        raise HTTPException(400, f"Role must be one of {ROLES}")
+        
+    target.role = body.role
+    if u.role == "admin":
+        target.org_id = body.org_id
+    else:
+        target.org_id = u.org_id
+        
+    target.permissions = body.permissions
+    s.add(target); s.commit(); s.refresh(target)
+    return public_user(target)
+
+
+@app.post("/org/invites")
+def create_org_invite(body: InviteIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    email = body.email.lower().strip()
+    if body.role not in ROLES:
+        raise HTTPException(400, f"Role must be one of {ROLES}")
+        
+    if u.role != "admin":
+        try:
+            caller_idx = ROLES.index(u.role)
+            invitee_idx = ROLES.index(body.role)
+        except ValueError:
+            raise HTTPException(400, "Invalid role specified.")
+        if caller_idx < 2:
+            raise HTTPException(403, "Access denied. You must be a Product Owner or higher to invite organization members.")
+        if invitee_idx > caller_idx:
+            raise HTTPException(403, f"You cannot invite someone with a role higher than yours ({u.role}).")
+            
+    target_org_id = u.org_id
+    if u.role == "admin" and body.org_id is not None:
+        target_org_id = body.org_id
+        
+    if target_org_id is None:
+        raise HTTPException(400, "Organization ID is required.")
+
+    existing_user = s.exec(select(User).where(User.email == email)).first()
+    if existing_user:
+        if u.role != "admin":
+            try:
+                existing_idx = ROLES.index(existing_user.role)
+            except ValueError:
+                existing_idx = 0
+            if existing_idx > caller_idx:
+                raise HTTPException(403, "Access denied. You cannot modify a user with a higher role than yours.")
+        
+    old_inv = s.exec(select(Invitation).where(Invitation.email == email)).first()
+    if old_inv:
+        s.delete(old_inv)
+        s.commit()
+        
+    token = secrets.token_urlsafe(32)
+    expires_at = time.time() + (7 * 24 * 3600)
+    
+    inv = Invitation(email=email, token=token, role=body.role, expires_at=expires_at, org_id=target_org_id)
+    s.add(inv); s.commit(); s.refresh(inv)
+    return {"token": inv.token, "email": inv.email, "role": inv.role, "org_id": inv.org_id, "direct_added": False}
+
+
+@app.delete("/org/invites/{invite_id}")
+def delete_org_invite(invite_id: int, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    inv = s.get(Invitation, invite_id)
+    if not inv: raise HTTPException(404, "Invitation not found")
+    if u.role != "admin" and inv.org_id != u.org_id:
+        raise HTTPException(403, "Access denied")
+    s.delete(inv); s.commit()
+    return {"ok": True}
+
+@app.get("/org/my-invitations")
+def get_my_invitations(u: User = Depends(current_user), s: Session = Depends(get_session)):
+    now = time.time()
+    invs = s.exec(
+        select(Invitation)
+        .where(Invitation.email == u.email)
+        .where(Invitation.status == "pending")
+        .where(Invitation.expires_at > now)
+    ).all()
+    
+    results = []
+    for inv in invs:
+        d = inv.dict()
+        org = s.get(Organization, inv.org_id) if inv.org_id else None
+        d["org_name"] = org.name if org else "Concentrix (Internal)"
+        results.append(d)
+    return results
+
+@app.post("/org/my-invitations/{invite_id}/respond")
+def respond_to_invitation(invite_id: int, body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    action = body.get("action")
+    if action not in ("accept", "decline"):
+        raise HTTPException(400, "Action must be accept or decline")
+        
+    inv = s.get(Invitation, invite_id)
+    if not inv or inv.email != u.email or inv.status != "pending" or inv.expires_at < time.time():
+        raise HTTPException(404, "Pending invitation not found or expired")
+        
+    if action == "accept":
+        inv.status = "accepted"
+        u.org_id = inv.org_id
+        u.role = inv.role
+        u.permissions = {}  # Clear custom overrides so they inherit defaults
+        s.add(inv)
+        s.add(u)
+        s.commit()
+        return {"ok": True, "action": "accepted", "user": public_user(u)}
+    else:
+        inv.status = "declined"
+        s.add(inv)
+        s.commit()
+        return {"ok": True, "action": "declined"}
 
 
 @app.put("/admin/users/{user_id}/role")

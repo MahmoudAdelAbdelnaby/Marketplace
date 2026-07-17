@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { LayoutGrid, PenLine, ChevronUp, Lightbulb, Wrench, Megaphone, ThumbsUp } from 'lucide-react';
 import { api } from '../../api';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useCanvasStore } from '../../store/useCanvasStore';
 import { useNavigate } from 'react-router-dom';
 import ToolForm from '../catalog/ToolForm';
 
@@ -353,7 +354,10 @@ export default function ManageView() {
                   </div>
                 </div>
                 <button 
-                  onClick={() => nav(`/canvas`)}
+                  onClick={() => {
+                    useCanvasStore.getState().loadBackendIdea(i);
+                    nav(`/ideas`);
+                  }}
                   style={getBtnStyle(`idea-${i.id}`, true)}
                   onMouseEnter={() => setHoveredBtnId(`idea-${i.id}`)}
                   onMouseLeave={() => setHoveredBtnId(null)}

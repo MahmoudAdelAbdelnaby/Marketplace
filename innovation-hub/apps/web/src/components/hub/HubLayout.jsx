@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Settings, LogOut, Moon, Sun, Bell, Sparkles, Send, X, ChevronDown, LayoutGrid, Map, MessageSquare, Lightbulb, CheckSquare, Shield, Zap } from 'lucide-react';
+import { Settings, LogOut, Moon, Sun, Bell, Sparkles, Send, X, ChevronDown, LayoutGrid, Map, MessageSquare, Lightbulb, CheckSquare, Shield, Zap, Building } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useCatalogStore } from '../../store/useCatalogStore';
 import { useCanvasStore } from '../../store/useCanvasStore';
@@ -10,19 +10,31 @@ import BrandShapes from '../ui/BrandShapes';
 
 const ROLE_LABEL = { viewer: 'Viewer', product_owner: 'Product Owner', committee: 'Committee', admin: 'Admin' };
 
-// Navigation defined inline below in grouped categories
+export const isPageAllowed = (to, user) => {
+  if (!user) return false;
+  if (to === '/org-management') {
+    return user.org_id !== null && user.org_id !== undefined;
+  }
+  if (user.role === 'admin') return true;
 
-const linkStyle = (isActive) => ({
-  padding: '8px 14px', borderRadius: 999, fontSize: 14, fontWeight: 600, textDecoration: 'none',
-  color: isActive ? '#fff' : 'var(--text-secondary)',
-  background: isActive ? 'var(--primary)' : 'transparent',
-});
+  if (to === '/admin' && user.role !== 'admin') return false;
+
+  const allowed = user.permissions?.allowed_pages;
+  if (!allowed) return true;
+
+  if (to.startsWith('/catalog')) return allowed.includes('catalog');
+  if (to.startsWith('/roadmap')) return allowed.includes('roadmap');
+  if (to.startsWith('/voice')) return allowed.includes('insights') && user.permissions?.can_view_voc !== false;
+  if (to.startsWith('/chat')) return allowed.includes('matchmaker');
+  if (to.startsWith('/settings')) return allowed.includes('settings');
+
+  return true;
+};
 
 const DISCOVER_ITEMS = [
   { to: '/catalog', label: 'Catalog', desc: 'Browse and search available tools', icon: LayoutGrid },
   { to: '/roadmap', label: 'Products Roadmap', desc: 'See what is planned and upcoming', icon: Map },
   { to: '/voice', label: 'Voice of Clients', desc: 'Review client feedback and feature requests', icon: MessageSquare }
-  // { to: '/promo', label: 'Interactive Promo', desc: 'Auto-playing audio walkthrough video', icon: Sparkles }
 ];
 
 const BUILD_ITEMS = [
@@ -31,15 +43,19 @@ const BUILD_ITEMS = [
 
 const MANAGE_ITEMS = [
   { to: '/manage', label: 'My Workspace', desc: 'Manage your submitted ideas and tools', icon: LayoutGrid },
+  { to: '/org-management', label: 'My Organization', desc: 'Manage your organization members and invites', icon: Building },
   { to: '/review', label: 'Review', desc: 'Review submitted ideas and tools', icon: CheckSquare, roles: ['committee', 'admin'] },
   { to: '/admin', label: 'Admin', desc: 'Manage users, settings, and taxonomies', icon: Shield, roles: ['admin'] }
 ];
 
-function NavDropdown({ title, items, userRole }) {
+function NavDropdown({ title, items, user }) {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   
-  const visibleItems = items.filter(item => !item.roles || item.roles.includes(userRole));
+  const visibleItems = items.filter(item => {
+    if (item.roles && !item.roles.includes(user?.role)) return false;
+    return isPageAllowed(item.to, user);
+  });
   if (visibleItems.length === 0) return null;
 
   const isActive = visibleItems.some(item => location.pathname.startsWith(item.to));
@@ -190,23 +206,25 @@ export function UserDropdown({ user, logout, setThemeMode, theme }) {
             borderRadius: 12, padding: 8, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 4,
             boxShadow: 'var(--shadow-lg)'
           }}>
-            <NavLink 
-              to="/settings" 
-              style={({ isActive }) => ({
-                display: 'flex', gap: 12, alignItems: 'center', padding: '10px 12px', borderRadius: 8,
-                textDecoration: 'none', transition: 'all 0.2s', fontSize: 13, fontWeight: 600,
-                color: isActive ? 'var(--primary)' : 'var(--text-primary)',
-                background: isActive ? 'var(--secondary)' : 'transparent'
-              })}
-              onMouseOver={(e) => {
-                if (e.currentTarget.style.background === 'transparent') e.currentTarget.style.background = 'var(--bg-main)';
-              }}
-              onMouseOut={(e) => {
-                if (e.currentTarget.style.background === 'var(--bg-main)') e.currentTarget.style.background = 'transparent';
-              }}
-            >
-              <Settings size={16} /> Account Settings
-            </NavLink>
+            {isPageAllowed('/settings', user) && (
+              <NavLink 
+                to="/settings" 
+                style={({ isActive }) => ({
+                  display: 'flex', gap: 12, alignItems: 'center', padding: '10px 12px', borderRadius: 8,
+                  textDecoration: 'none', transition: 'all 0.2s', fontSize: 13, fontWeight: 600,
+                  color: isActive ? 'var(--primary)' : 'var(--text-primary)',
+                  background: isActive ? 'var(--secondary)' : 'transparent'
+                })}
+                onMouseOver={(e) => {
+                  if (e.currentTarget.style.background === 'transparent') e.currentTarget.style.background = 'var(--bg-main)';
+                }}
+                onMouseOut={(e) => {
+                  if (e.currentTarget.style.background === 'var(--bg-main)') e.currentTarget.style.background = 'transparent';
+                }}
+              >
+                <Settings size={16} /> Account Settings
+              </NavLink>
+            )}
 
             <div style={{ height: 1, background: 'var(--border-color)', margin: '4px 0' }} />
             
@@ -250,6 +268,36 @@ export default function HubLayout({ children }) {
     localStorage.setItem('hub_theme', mode);
     setTheme(mode);
   };
+
+  const [myInvites, setMyInvites] = useState([]);
+  const loadMyInvites = () => {
+    if (!user) return;
+    api('/org/my-invitations').then(setMyInvites).catch(() => {});
+  };
+
+  const handleRespondInvite = async (inviteId, action) => {
+    try {
+      const res = await api(`/org/my-invitations/${inviteId}/respond`, {
+        method: 'POST',
+        body: { action }
+      });
+      if (res.ok) {
+        if (action === 'accept') {
+          useAuthStore.getState().setUser(res.user);
+          alert('Organization invitation accepted!');
+        } else {
+          alert('Invitation declined.');
+        }
+        loadMyInvites();
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to respond to invitation');
+    }
+  };
+
+  useEffect(() => {
+    loadMyInvites();
+  }, [location.pathname, user]);
 
   useEffect(() => {
     const handleActivity = () => {
@@ -347,33 +395,35 @@ export default function HubLayout({ children }) {
       }}>
         <Logo />
         <nav style={{ display: 'flex', gap: 8, marginLeft: 24, alignItems: 'center' }}>
-          <NavDropdown title="Discover" items={DISCOVER_ITEMS} userRole={user?.role} />
-          <NavDropdown title="Build" items={BUILD_ITEMS} userRole={user?.role} />
-          <NavDropdown title="Manage" items={MANAGE_ITEMS} userRole={user?.role} />
-          <NavLink 
-            to="/chat" 
-            style={({ isActive }) => ({
-              display: 'flex', alignItems: 'center', gap: 6, 
-              background: isActive ? 'var(--primary)' : 'transparent', 
-              border: 'none', 
-              fontSize: 14, fontWeight: 600, 
-              color: isActive ? '#fff' : 'var(--text-primary)', 
-              cursor: 'pointer', padding: '8px 14px', borderRadius: 999,
-              transition: 'all 0.2s',
-              textDecoration: 'none'
-            })}
-            onMouseOver={(e) => {
-              const isActive = location.pathname.startsWith('/chat');
-              if (!isActive) e.currentTarget.style.background = 'var(--bg-main)';
-            }}
-            onMouseOut={(e) => {
-              const isActive = location.pathname.startsWith('/chat');
-              if (!isActive) e.currentTarget.style.background = 'transparent';
-            }}
-          >
-            <Sparkles size={14} style={{ color: location.pathname.startsWith('/chat') ? '#fff' : 'var(--primary-text)' }} />
-            AI Matchmaker
-          </NavLink>
+          <NavDropdown title="Discover" items={DISCOVER_ITEMS} user={user} />
+          <NavDropdown title="Build" items={BUILD_ITEMS} user={user} />
+          <NavDropdown title="Manage" items={MANAGE_ITEMS} user={user} />
+          {isPageAllowed('/chat', user) && (
+            <NavLink 
+              to="/chat" 
+              style={({ isActive }) => ({
+                display: 'flex', alignItems: 'center', gap: 6, 
+                background: isActive ? 'var(--primary)' : 'transparent', 
+                border: 'none', 
+                fontSize: 14, fontWeight: 600, 
+                color: isActive ? '#fff' : 'var(--text-primary)', 
+                cursor: 'pointer', padding: '8px 14px', borderRadius: 999,
+                transition: 'all 0.2s',
+                textDecoration: 'none'
+              })}
+              onMouseOver={(e) => {
+                const isActive = location.pathname.startsWith('/chat');
+                if (!isActive) e.currentTarget.style.background = 'var(--bg-main)';
+              }}
+              onMouseOut={(e) => {
+                const isActive = location.pathname.startsWith('/chat');
+                if (!isActive) e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              <Sparkles size={14} style={{ color: location.pathname.startsWith('/chat') ? '#fff' : 'var(--primary-text)' }} />
+              AI Matchmaker
+            </NavLink>
+          )}
         </nav>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           {['product_owner', 'admin'].includes(user?.role) && (
@@ -385,6 +435,41 @@ export default function HubLayout({ children }) {
           <UserDropdown user={user} logout={logout} setThemeMode={setThemeMode} theme={theme} />
         </div>
       </header>
+      {myInvites.map(inv => (
+        <div key={inv.id} style={{
+          background: 'var(--secondary)',
+          borderBottom: '1px solid var(--border-color)',
+          padding: '12px 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 16,
+          color: 'var(--text-primary)',
+          fontSize: 13.5,
+          zIndex: 10
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Building size={16} style={{ color: 'var(--primary)' }} />
+            <span>
+              You have been invited to join <b>{inv.org_name}</b> as a <b>{inv.role.toUpperCase()}</b>.
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button 
+              onClick={() => handleRespondInvite(inv.id, 'accept')}
+              style={{ padding: '6px 14px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 12.5 }}
+            >
+              Accept
+            </button>
+            <button 
+              onClick={() => handleRespondInvite(inv.id, 'decline')}
+              style={{ padding: '6px 14px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 12.5 }}
+            >
+              Decline
+            </button>
+          </div>
+        </div>
+      ))}
       <div className="scrollable-content" style={{ flex: 1, overflow: isFixedPage ? 'hidden' : 'auto', minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
         <BrandShapes variant="catalog" />
         {children}
