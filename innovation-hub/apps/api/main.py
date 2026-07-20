@@ -1438,7 +1438,7 @@ def _snip(text: str, n: int = 400) -> str:
 def build_digest_markdown(s: Session) -> dict:
     """Markdown summary of everything pending review — shared by the review UI and the Teams trigger."""
     tools = s.exec(select(Tool).where(Tool.review_status.in_(["pending", "changes"])).order_by(Tool.created_at)).all()
-    ideas = s.exec(select(Idea).where(Idea.status == "proposed").order_by(Idea.created_at)).all()
+    ideas = s.exec(select(Idea).where(Idea.status.in_(["proposed", "changes"])).order_by(Idea.created_at)).all()
 
     today = dt.date.today().isoformat()
     lines = [f"# Pending Review Digest — {today}", ""]
@@ -1539,7 +1539,7 @@ async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends
         raise HTTPException(403, "Reviewers only")
         
     tools = s.exec(select(Tool).where(Tool.review_status.in_(["pending", "changes"])).order_by(Tool.created_at)).all()
-    ideas = s.exec(select(Idea).where(Idea.status == "proposed").order_by(Idea.created_at)).all()
+    ideas = s.exec(select(Idea).where(Idea.status.in_(["proposed", "changes"])).order_by(Idea.created_at)).all()
     
     input_lines = []
     if tools:
@@ -3044,7 +3044,8 @@ Guidelines:
    - **🎯 Tools Awaiting Approval**: Summarize each tool's core value, and give a clear board Recommendation (e.g. "Approve for Pilot", "Schedule Demo", "Return to Owner for Info").
    - **💡 Community Ideas**: Summarize proposed ideas, noting community votes/demand, and suggest next steps.
 3. For each item, keep it concise (2-3 sentences max) but complete. Highlight estimated ROI or community impact.
-4. Keep the format clean, well-spaced, and actionable for board members.""",
+4. Keep the format clean, well-spaced, and actionable for board members.
+5. IMPORTANT: Include and summarize EVERY item present in the input list. Do not omit or skip any items.""",
 
     "prompt_security_audit": """You are a senior devops and security auditor.
 Analyze the application codebase structure and configuration files.
