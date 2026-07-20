@@ -54,7 +54,7 @@ export default function AdminCenter() {
   const [routing, setRouting] = useState('committee');
   const [requiredReviewers, setRequiredReviewers] = useState(1);
   const [aiAudit, setAiAudit] = useState({ enabled: true, provider: 'gemini', localUrl: 'http://localhost:11434', localModel: 'llama3.2' });
-  const [teams, setTeams] = useState({ webhookUrl: '', baseUrl: '' });
+  const [teams, setTeams] = useState({ webhookUrl: '', baseUrl: '', triggerKey: '' });
   const [teamsTestState, setTeamsTestState] = useState('');
   const [tools, setTools] = useState([]);
   const [ideas, setIdeas] = useState([]);
@@ -264,6 +264,7 @@ export default function AdminCenter() {
           if (data) setTeams({
             webhookUrl: data.teams_webhook_url || '',
             baseUrl: data.app_base_url || '',
+            triggerKey: data.digest_trigger_key || '',
           });
         })
         .catch(() => {});
@@ -455,6 +456,7 @@ export default function AdminCenter() {
       await api('/admin/settings', { method: 'POST', body: {
         teams_webhook_url: next.webhookUrl,
         app_base_url: next.baseUrl,
+        digest_trigger_key: next.triggerKey,
       }});
       showTempSuccess('Teams notification settings saved.');
     } catch (e) { setErr(e.message); }
@@ -1355,7 +1357,7 @@ export default function AdminCenter() {
               Posts a card to a Teams channel whenever a new tool or idea is submitted for review.
               In Teams: channel → ⋯ → Workflows → "Post to a channel when a webhook request is received" → paste the URL here.
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 12, alignItems: 'end' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 12, alignItems: 'end' }}>
               <div>
                 <label style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', display: 'block', marginBottom: 5 }}>Workflow Webhook URL</label>
                 <input
@@ -1373,6 +1375,16 @@ export default function AdminCenter() {
                   onChange={(e) => setTeams({ ...teams, baseUrl: e.target.value })}
                   onBlur={() => saveTeams(teams)}
                   placeholder="http://35.193.55.69"
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', display: 'block', marginBottom: 5 }}>Digest Trigger Key</label>
+                <input
+                  value={teams.triggerKey}
+                  onChange={(e) => setTeams({ ...teams, triggerKey: e.target.value })}
+                  onBlur={() => saveTeams(teams)}
+                  placeholder="secret for the 'new updates' flow"
                   style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13 }}
                 />
               </div>

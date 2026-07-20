@@ -970,7 +970,7 @@ def create_tool(body: dict, u: User = Depends(current_user), s: Session = Depend
                  [f"**Owner:** {t.owner or u.name}",
                   f"**Category:** {t.category or 'Uncategorized'}",
                   f"**ROI claim:** ${t.roi:,.0f}/yr" if t.roi else "**ROI claim:** none",
-                  f"**Problem:** {(t.problem or '')[:200]}"],
+                  f"**Problem:** {_snip(t.problem)}"],
                  "/review")
     return public_tool(t)
 
@@ -1427,11 +1427,16 @@ def add_idea_review_comment(idea_id: int, body: dict, u: User = Depends(current_
     return {"ok": True, "review_comments": comments}
 
 
-@app.get("/review/digest")
-def review_digest(u: User = Depends(current_user), s: Session = Depends(get_session)):
-    """Markdown summary of everything pending review — for sharing with the committee."""
-    if u.role not in REVIEWER_ROLES:
-        raise HTTPException(403, "Reviewers only")
+def _snip(text: str, n: int = 400) -> str:
+    """Cut at a word boundary with an ellipsis instead of mid-sentence."""
+    text = (text or "").strip()
+    if len(text) <= n:
+        return text
+    return text[:n].rsplit(" ", 1)[0] + "…"
+
+
+def build_digest_markdown(s: Session) -> dict:
+    """Markdown summary of everything pending review — shared by the review UI and the Teams trigger."""
     tools = s.exec(select(Tool).where(Tool.review_status.in_(["pending", "changes"])).order_by(Tool.created_at)).all()
     ideas = s.exec(select(Idea).where(Idea.status == "proposed").order_by(Idea.created_at)).all()
 
@@ -1453,7 +1458,7 @@ def review_digest(u: User = Depends(current_user), s: Session = Depends(get_sess
                          f"waiting {age_days}d, {comments} reviewer comment(s)"
                          + (f" — status: {t.review_status}" if t.review_status != "pending" else ""))
             if t.problem:
-                lines.append(f"  - Problem: {t.problem[:180]}")
+                lines.append(f"  - Problem: {_snip(t.problem, 300)}")
         lines.append("")
 
     if ideas:
@@ -1467,6 +1472,32 @@ def review_digest(u: User = Depends(current_user), s: Session = Depends(get_sess
         lines.append("_Nothing pending. All caught up!_")
 
     return {"markdown": "\n".join(lines), "tool_count": len(tools), "idea_count": len(ideas)}
+
+
+@app.get("/review/digest")
+def review_digest(u: User = Depends(current_user), s: Session = Depends(get_session)):
+    if u.role not in REVIEWER_ROLES:
+        raise HTTPException(403, "Reviewers only")
+    return build_digest_markdown(s)
+
+
+@app.api_route("/review/digest/trigger", methods=["GET", "POST"])
+def trigger_digest_to_teams(key: str = "", s: Session = Depends(get_session)):
+    """Machine-callable (Power Automate): generate the pending-review digest and
+    push it to the Teams webhook. Secured by the digest_trigger_key setting."""
+    row = s.get(Setting, "digest_trigger_key")
+    expected = (row.value if row else "").strip()
+    if not expected:
+        raise HTTPException(400, "No digest trigger key configured in Admin settings.")
+    if not key or key != expected:
+        raise HTTPException(403, "Invalid trigger key")
+    d = build_digest_markdown(s)
+    paras = [p.strip() for p in d["markdown"].split("\n\n") if p.strip()]
+    title = paras.pop(0).lstrip("# ").strip() if paras else "Pending Review Digest"
+    ok = notify_teams(s, f"📋 {title}", paras[:40], "/review")
+    if not ok:
+        raise HTTPException(400, "No Teams webhook URL configured.")
+    return {"ok": True, "tool_count": d["tool_count"], "idea_count": d["idea_count"]}
 
 
 @app.post("/review/ai-digest")
@@ -1727,7 +1758,7 @@ def save_idea(body: dict, u: User = Depends(current_user), s: Session = Depends(
         problem = (i.canvas or {}).get("problemStatement", "") or ""
         notify_teams(s, f"💡 New idea submitted: {i.name}",
                      [f"**Owner:** {i.owner or u.name}",
-                      f"**Problem:** {problem[:200]}" if problem else "Submitted for committee review."],
+                      f"**Problem:** {_snip(problem)}" if problem else "Submitted for committee review."],
                      "/review")
     return public_idea(i, s)
 
