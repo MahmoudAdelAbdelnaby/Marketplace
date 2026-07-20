@@ -455,16 +455,20 @@ export default function AdminCenter() {
     } catch (e) { setErr(e.message); }
   };
 
+  const [teamsSaveState, setTeamsSaveState] = useState('');
   const saveTeams = async (next) => {
     setTeams(next);
+    setTeamsSaveState('saving');
     try {
       await api('/admin/settings', { method: 'POST', body: {
         teams_webhook_url: next.webhookUrl,
         app_base_url: next.baseUrl,
         digest_trigger_key: next.triggerKey,
       }});
+      setTeamsSaveState('saved');
+      setTimeout(() => setTeamsSaveState(''), 2500);
       showTempSuccess('Teams notification settings saved.');
-    } catch (e) { setErr(e.message); }
+    } catch (e) { setTeamsSaveState(''); setErr(e.message); }
   };
 
   const saveDigestSched = async (next) => {
@@ -1415,6 +1419,36 @@ export default function AdminCenter() {
               >
                 {teamsTestState === 'sent' ? '✓ Sent!' : teamsTestState === 'sending' ? 'Sending…' : 'Send Test'}
               </button>
+            </div>
+
+            {/* Explicit save + Power Automate trigger URL */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => saveTeams(teams)}
+                disabled={teamsSaveState === 'saving'}
+                style={{
+                  padding: '9px 22px', borderRadius: 8, border: 'none',
+                  background: teamsSaveState === 'saved' ? 'var(--success)' : 'var(--primary)',
+                  color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                  opacity: teamsSaveState === 'saving' ? 0.6 : 1
+                }}
+              >
+                {teamsSaveState === 'saved' ? '✓ Saved' : teamsSaveState === 'saving' ? 'Saving…' : 'Save Settings'}
+              </button>
+              {teams.triggerKey.trim() && teams.baseUrl.trim() && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 320 }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Power Automate URL:</span>
+                  <code style={{ fontSize: 11.5, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '6px 10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    {`${teams.baseUrl.replace(/\/$/, '')}/review/digest/trigger?key=${teams.triggerKey.trim()}`}
+                  </code>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(`${teams.baseUrl.replace(/\/$/, '')}/review/digest/trigger?key=${teams.triggerKey.trim()}`); showTempSuccess('Trigger URL copied.'); }}
+                    style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    Copy
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Weekly auto-digest schedule */}
