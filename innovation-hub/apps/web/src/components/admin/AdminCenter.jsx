@@ -54,6 +54,8 @@ export default function AdminCenter() {
   const [routing, setRouting] = useState('committee');
   const [requiredReviewers, setRequiredReviewers] = useState(1);
   const [aiAudit, setAiAudit] = useState({ enabled: true, provider: 'gemini', localUrl: 'http://localhost:11434', localModel: 'llama3.2' });
+  const [teams, setTeams] = useState({ webhookUrl: '', baseUrl: '' });
+  const [teamsTestState, setTeamsTestState] = useState('');
   const [tools, setTools] = useState([]);
   const [ideas, setIdeas] = useState([]);
   
@@ -259,6 +261,10 @@ export default function AdminCenter() {
             localUrl: data.local_model_url || 'http://localhost:11434',
             localModel: data.local_model_name || 'llama3.2',
           });
+          if (data) setTeams({
+            webhookUrl: data.teams_webhook_url || '',
+            baseUrl: data.app_base_url || '',
+          });
         })
         .catch(() => {});
     }
@@ -441,6 +447,29 @@ export default function AdminCenter() {
       }});
       showTempSuccess('AI audit settings saved.');
     } catch (e) { setErr(e.message); }
+  };
+
+  const saveTeams = async (next) => {
+    setTeams(next);
+    try {
+      await api('/admin/settings', { method: 'POST', body: {
+        teams_webhook_url: next.webhookUrl,
+        app_base_url: next.baseUrl,
+      }});
+      showTempSuccess('Teams notification settings saved.');
+    } catch (e) { setErr(e.message); }
+  };
+
+  const testTeams = async () => {
+    setTeamsTestState('sending');
+    try {
+      await api('/admin/teams-test', { method: 'POST' });
+      setTeamsTestState('sent');
+      setTimeout(() => setTeamsTestState(''), 3000);
+    } catch (e) {
+      setTeamsTestState('');
+      alert('Test failed: ' + e.message);
+    }
   };
 
   const updateRouting = async (val) => {
@@ -1314,6 +1343,51 @@ export default function AdminCenter() {
                   </button>
                 ))}
               </div>
+            </div>
+          </div>
+
+          {/* TEAMS NOTIFICATIONS */}
+          <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Send size={18} /> Teams Notifications
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>
+              Posts a card to a Teams channel whenever a new tool or idea is submitted for review.
+              In Teams: channel → ⋯ → Workflows → "Post to a channel when a webhook request is received" → paste the URL here.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 12, alignItems: 'end' }}>
+              <div>
+                <label style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', display: 'block', marginBottom: 5 }}>Workflow Webhook URL</label>
+                <input
+                  value={teams.webhookUrl}
+                  onChange={(e) => setTeams({ ...teams, webhookUrl: e.target.value })}
+                  onBlur={() => saveTeams(teams)}
+                  placeholder="https://prod-xx.westus.logic.azure.com/workflows/…"
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', display: 'block', marginBottom: 5 }}>App URL (for card links)</label>
+                <input
+                  value={teams.baseUrl}
+                  onChange={(e) => setTeams({ ...teams, baseUrl: e.target.value })}
+                  onBlur={() => saveTeams(teams)}
+                  placeholder="http://35.193.55.69"
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13 }}
+                />
+              </div>
+              <button
+                onClick={testTeams}
+                disabled={teamsTestState === 'sending' || !teams.webhookUrl.trim()}
+                style={{
+                  padding: '9px 18px', borderRadius: 8, border: 'none', whiteSpace: 'nowrap',
+                  background: teamsTestState === 'sent' ? 'var(--success)' : 'var(--primary)',
+                  color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                  opacity: (teamsTestState === 'sending' || !teams.webhookUrl.trim()) ? 0.5 : 1
+                }}
+              >
+                {teamsTestState === 'sent' ? '✓ Sent!' : teamsTestState === 'sending' ? 'Sending…' : 'Send Test'}
+              </button>
             </div>
           </div>
 

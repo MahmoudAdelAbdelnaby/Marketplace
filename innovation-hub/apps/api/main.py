@@ -963,9 +963,15 @@ def create_tool(body: dict, u: User = Depends(current_user), s: Session = Depend
         "note": "Initial product submission",
         "changed_fields": ["created"]
     }]
-    
+
     s.add(t); s.commit(); s.refresh(t)
     auto_trigger_container_build_if_needed(t, s)
+    notify_teams(s, f"🛠️ New tool submitted: {t.name}",
+                 [f"**Owner:** {t.owner or u.name}",
+                  f"**Category:** {t.category or 'Uncategorized'}",
+                  f"**ROI claim:** ${t.roi:,.0f}/yr" if t.roi else "**ROI claim:** none",
+                  f"**Problem:** {(t.problem or '')[:200]}"],
+                 "/review")
     return public_tool(t)
 
 
@@ -1128,6 +1134,54 @@ def get_ai_audit_config(s: Session) -> dict:
         "local_url": rows.get("local_model_url", "http://localhost:11434"),
         "local_model": rows.get("local_model_name", "llama3.2"),
     }
+
+
+def notify_teams(s: Session, title: str, lines: list, link_path: str = "") -> bool:
+    """Post an Adaptive Card to the Teams channel webhook (Workflows app).
+    Fire-and-forget in a background thread. Returns False if no webhook configured."""
+    row = s.get(Setting, "teams_webhook_url")
+    url = (row.value if row else "").strip()
+    if not url:
+        return False
+    base_row = s.get(Setting, "app_base_url")
+    base = (base_row.value if base_row else "").strip().rstrip("/")
+
+    card = {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.4",
+        "body": [
+            {"type": "TextBlock", "size": "Medium", "weight": "Bolder", "text": title, "wrap": True},
+            *[{"type": "TextBlock", "text": l, "wrap": True, "spacing": "Small"} for l in lines],
+        ],
+    }
+    if base and link_path:
+        card["actions"] = [{"type": "Action.OpenUrl", "title": "Open in Marketplace", "url": f"{base}{link_path}"}]
+    payload = {
+        "type": "message",
+        "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive", "content": card}],
+    }
+
+    def _send():
+        try:
+            r = httpx.post(url, json=payload, timeout=10)
+            if r.status_code >= 300:
+                print(f"Teams notify failed: HTTP {r.status_code}: {r.text[:300]}")
+        except Exception as e:
+            print(f"Teams notify failed: {e}")
+
+    threading.Thread(target=_send, daemon=True).start()
+    return True
+
+
+@app.post("/admin/teams-test")
+def teams_test(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    ok = notify_teams(s, "✅ Marketplace → Teams is connected",
+                      ["This is a test notification. New idea and tool submissions will appear here."],
+                      "/review")
+    if not ok:
+        raise HTTPException(400, "No Teams webhook URL configured. Paste the workflow URL in Admin settings first.")
+    return {"ok": True}
 
 
 def get_gemini_api_key(s: Session) -> Optional[str]:
@@ -1526,6 +1580,26 @@ async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends
     return {"digest": res_text, "via": via}
 
 
+@app.post("/review/digest/push-teams")
+def push_digest_to_teams(body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    """Push a (possibly edited) digest from the preview modal to the Teams channel."""
+    if u.role not in REVIEWER_ROLES:
+        raise HTTPException(403, "Reviewers only")
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "Digest text is required")
+    # Adaptive Card payloads cap around 28KB — keep a safe margin
+    text = text[:10000]
+    paras = [p.strip() for p in text.split("\n\n") if p.strip()]
+    title = "📋 Committee Digest"
+    if paras and len(paras[0]) < 120:
+        title = paras.pop(0)  # use the digest's own header line as the card title
+    ok = notify_teams(s, title, paras[:40], "/review")
+    if not ok:
+        raise HTTPException(400, "No Teams webhook URL configured. Set it in Admin settings first.")
+    return {"ok": True}
+
+
 @app.post("/tools/{tool_id}/vote")
 def vote_tool(tool_id: int, u: User = Depends(current_user), s: Session = Depends(get_session)):
     t = s.get(Tool, tool_id)
@@ -1639,6 +1713,7 @@ def save_idea(body: dict, u: User = Depends(current_user), s: Session = Depends(
     if "voc_id" in body: i.voc_id = body["voc_id"]
     if "team" in body: i.team = body["team"]
     if "tool_id" in body: i.tool_id = body["tool_id"]
+    was_proposed = i.status == "proposed"
     if "status" in body:
         i.status = body["status"]   # 'draft' on save, 'proposed' on submit
         if body["status"] == "proposed":
@@ -1648,6 +1723,12 @@ def save_idea(body: dict, u: User = Depends(current_user), s: Session = Depends(
                 i.decided_by = "Auto-routed"
     i.updated_at = time.time()
     s.add(i); s.commit(); s.refresh(i)
+    if i.status == "proposed" and not was_proposed:
+        problem = (i.canvas or {}).get("problemStatement", "") or ""
+        notify_teams(s, f"💡 New idea submitted: {i.name}",
+                     [f"**Owner:** {i.owner or u.name}",
+                      f"**Problem:** {problem[:200]}" if problem else "Submitted for committee review."],
+                     "/review")
     return public_idea(i, s)
 
 
