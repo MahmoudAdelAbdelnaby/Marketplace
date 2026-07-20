@@ -7,8 +7,18 @@ echo.
 
 set "ROOT_DIR=%~dp0"
 
+:: Detect Python executable (prefer Anaconda if installed)
+set "PY_CMD=python"
+if exist "%USERPROFILE%\AppData\Local\anaconda3\python.exe" (
+    set "PY_CMD=%USERPROFILE%\AppData\Local\anaconda3\python.exe"
+) else if exist "%ProgramData%\anaconda3\python.exe" (
+    set "PY_CMD=%ProgramData%\anaconda3\python.exe"
+) else if exist "C:\anaconda3\python.exe" (
+    set "PY_CMD=C:\anaconda3\python.exe"
+)
+
 echo [1/2] Launching FastAPI Backend (Port 8000)...
-start "Innovation Hub - Backend (FastAPI)" cmd /k "cd /d "%ROOT_DIR%apps\api" && python -m uvicorn main:app --port 8000 --reload"
+start "Innovation Hub - Backend (FastAPI)" cmd /k "cd /d "%ROOT_DIR%apps\api" && "%PY_CMD%" -m uvicorn main:app --port 8000 --reload"
 
 echo [2/2] Launching Vite Frontend (Port 5173)...
 start "Innovation Hub - Frontend (Vite)" cmd /k "cd /d "%ROOT_DIR%apps\web" && npm run dev"
