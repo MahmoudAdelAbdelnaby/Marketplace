@@ -1555,8 +1555,90 @@ async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends
         input_lines.append("Proposed Ideas:")
         for i in ideas:
             input_lines.append(f"- Title: {i.name} | Owner: {i.owner} | Votes: {i.votes}")
-            if getattr(i, "description", None):
-                input_lines.append(f"  Description: {i.description}")
+            canvas = i.canvas or {}
+            if canvas:
+                def camel_to_title(s):
+                    return "".join([" " + char if char.isupper() else char for char in s]).strip().title()
+
+                # 1. Concept & Problem
+                input_lines.append("  1. Concept & Problem:")
+                if canvas.get("problemStatement"):
+                    input_lines.append(f"    Problem Statement: {canvas.get('problemStatement')}")
+                if canvas.get("currentProcess"):
+                    input_lines.append(f"    Current Process: {canvas.get('currentProcess')}")
+                if canvas.get("painPoints"):
+                    input_lines.append(f"    Pain Points: {canvas.get('painPoints')}")
+                if canvas.get("frequency"):
+                    input_lines.append(f"    Frequency: {canvas.get('frequency')}")
+                if canvas.get("implicationsOfInaction"):
+                    input_lines.append(f"    Implications of Inaction: {canvas.get('implicationsOfInaction')}")
+                if canvas.get("primaryUsers"):
+                    users = canvas.get("primaryUsers")
+                    users_str = ", ".join(users) if isinstance(users, list) else str(users)
+                    input_lines.append(f"    Target Users: {users_str}")
+                if canvas.get("vpAudience") or canvas.get("vpOutcome") or canvas.get("vpMethod"):
+                    input_lines.append(f"    Value Proposition: Helps {canvas.get('vpAudience', '—')} achieve {canvas.get('vpOutcome', '—')} by {canvas.get('vpMethod', '—')}")
+                if canvas.get("solutionTypes"):
+                    stypes = canvas.get("solutionTypes")
+                    stypes_str = ", ".join(stypes) if isinstance(stypes, list) else str(stypes)
+                    input_lines.append(f"    Solution Type: {stypes_str}")
+                
+                # 2. Solution Strategy
+                input_lines.append("  2. Solution Strategy:")
+                if canvas.get("strategicAlignment"):
+                    sa = canvas.get("strategicAlignment", {})
+                    sa_str = ", ".join(f"{camel_to_title(k)}: {'Definite' if v == 2 else 'Potential' if v == 1 else 'None'}" for k, v in sa.items())
+                    input_lines.append(f"    Strategic Alignment: {sa_str}")
+                if canvas.get("industries") or canvas.get("functions") or canvas.get("regions"):
+                    ind = canvas.get("industries", [])
+                    fn = canvas.get("functions", [])
+                    reg = canvas.get("regions", [])
+                    ind_str = ", ".join(ind) if isinstance(ind, list) else str(ind)
+                    fn_str = ", ".join(fn) if isinstance(fn, list) else str(fn)
+                    reg_str = ", ".join(reg) if isinstance(reg, list) else str(reg)
+                    input_lines.append(f"    Scalability Scope: Industries: {ind_str} | Functions: {fn_str} | Regions: {reg_str}")
+                if canvas.get("currentAlternatives") or canvas.get("existingCompetitors") or canvas.get("whatMakesUnique"):
+                    input_lines.append(f"    Differentiation: Alternatives: {canvas.get('currentAlternatives', '—')} | Competitors: {canvas.get('existingCompetitors', '—')} | Unique Edge: {canvas.get('whatMakesUnique', '—')}")
+                
+                # 3. Execution, Feasibility & Adoption
+                input_lines.append("  3. Execution, Feasibility & Adoption:")
+                bi = canvas.get("businessImpact", {})
+                if bi:
+                    input_lines.append(f"    Business Impact: Est. Users: {bi.get('estimatedUsers', '0')} | Hrs Saved: {bi.get('hoursSavedPerUser', '0')}/wk | Savings: {bi.get('costSavings', '—')} | Revenue: {bi.get('revenuePotential', '—')}")
+                if canvas.get("projectedROI"):
+                    input_lines.append(f"    Projected ROI: {canvas.get('projectedROI')}")
+                if canvas.get("deploymentTimeDays"):
+                    input_lines.append(f"    Time to Deploy: {canvas.get('deploymentTimeDays')} days")
+                pricing = canvas.get("pricing", {})
+                if pricing:
+                    input_lines.append(f"    Pricing: Price/User: ${pricing.get('pricePerUser', '0')} | Deployment Fee: ${pricing.get('deploymentFees', '0')} | Amount: ${pricing.get('amount', '0')}")
+                if canvas.get("feasibility"):
+                    feas = canvas.get("feasibility", {})
+                    feas_str = ", ".join(f"{camel_to_title(k)}: {['Low', 'Medium-Low', 'Medium', 'Medium-High', 'High'][v-1] if 1 <= v <= 5 else str(v)}" for k, v in feas.items())
+                    input_lines.append(f"    Feasibility Scores: {feas_str}")
+                if canvas.get("anticipatedRoadblockers"):
+                    input_lines.append(f"    Anticipated Roadblockers: {canvas.get('anticipatedRoadblockers')}")
+                if canvas.get("adoption"):
+                    adopt = canvas.get("adoption", {})
+                    adopt_str = ", ".join(f"{camel_to_title(k)}: {['Low', 'Medium-Low', 'Medium', 'Medium-High', 'High'][v-1] if 1 <= v <= 5 else str(v)}" for k, v in adopt.items())
+                    input_lines.append(f"    Adoption Potential: {adopt_str}")
+                if canvas.get("decision") or canvas.get("decisionJustification"):
+                    input_lines.append(f"    Build vs Buy: Decision: {canvas.get('decision', '—')} | Justification: {canvas.get('decisionJustification', '—')}")
+                
+                # 4. Risks & Success Metrics
+                input_lines.append("  4. Risks & Success Metrics:")
+                risks = canvas.get("risks", {})
+                if risks:
+                    tech_r = risks.get("technical", [])
+                    op_r = risks.get("operational", [])
+                    tech_r_str = ", ".join(tech_r) if isinstance(tech_r, list) else str(tech_r)
+                    op_r_str = ", ".join(op_r) if isinstance(op_r, list) else str(op_r)
+                    input_lines.append(f"    Technical Risks: {tech_r_str or 'None'} | Operational Risks: {op_r_str or 'None'}")
+                sm = canvas.get("successMetrics", {})
+                if sm:
+                    input_lines.append(f"    KPIs & Targets: KPIs: {sm.get('kpis', '—')} | Targets: {sm.get('revenueTargets', '—')}")
+                if canvas.get("aiEvaluation"):
+                    input_lines.append(f"    AI Evaluation: {canvas.get('aiEvaluation')}")
                 
     data_str = "\n".join(input_lines) if (tools or ideas) else "No pending items."
     
