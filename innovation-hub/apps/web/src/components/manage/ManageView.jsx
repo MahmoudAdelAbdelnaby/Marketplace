@@ -356,7 +356,7 @@ export default function ManageView() {
                 <button 
                   onClick={() => {
                     useCanvasStore.getState().loadBackendIdea(i);
-                    nav(`/ideas`);
+                    nav(`/ideas?idea_id=${i.id}`);
                   }}
                   style={getBtnStyle(`idea-${i.id}`, true)}
                   onMouseEnter={() => setHoveredBtnId(`idea-${i.id}`)}
