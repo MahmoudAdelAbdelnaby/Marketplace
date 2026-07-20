@@ -1484,6 +1484,26 @@ Pending Submissions List:
     return {"digest": res_text, "via": via}
 
 
+@app.post("/review/digest/push-teams")
+def push_digest_to_teams(body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    """Push a (possibly edited) digest from the preview modal to the Teams channel."""
+    if u.role not in REVIEWER_ROLES:
+        raise HTTPException(403, "Reviewers only")
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "Digest text is required")
+    # Adaptive Card payloads cap around 28KB — keep a safe margin
+    text = text[:10000]
+    paras = [p.strip() for p in text.split("\n\n") if p.strip()]
+    title = "📋 Committee Digest"
+    if paras and len(paras[0]) < 120:
+        title = paras.pop(0)  # use the digest's own header line as the card title
+    ok = notify_teams(s, title, paras[:40], "/review")
+    if not ok:
+        raise HTTPException(400, "No Teams webhook URL configured. Set it in Admin settings first.")
+    return {"ok": True}
+
+
 @app.post("/tools/{tool_id}/vote")
 def vote_tool(tool_id: int, u: User = Depends(current_user), s: Session = Depends(get_session)):
     t = s.get(Tool, tool_id)

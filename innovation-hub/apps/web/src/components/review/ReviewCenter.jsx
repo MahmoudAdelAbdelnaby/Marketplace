@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ClipboardCheck, Check, RotateCcw, Ban, Search, Trash2, ChevronDown, ChevronUp, Layers, Wrench, FolderArchive, User, Building, Landmark, DollarSign, Calendar, MessageSquare, Copy, Sparkles } from 'lucide-react';
+import { ClipboardCheck, Check, RotateCcw, Ban, Search, Trash2, ChevronDown, ChevronUp, Layers, Wrench, FolderArchive, User, Building, Landmark, DollarSign, Calendar, MessageSquare, Copy, Sparkles, Send } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -561,6 +561,7 @@ export default function ReviewCenter() {
   const [aiDigestCopied, setAiDigestCopied] = useState(false);
   const [generatingAi, setGeneratingAi] = useState(false);
   const [previewText, setPreviewText] = useState('');
+  const [pushingTeams, setPushingTeams] = useState(false);
 
   const load = () => {
     api('/review/tools').then(setTools).catch(() => {});
@@ -770,6 +771,29 @@ export default function ReviewCenter() {
                 Cancel
               </button>
               
+              <button
+                type="button"
+                disabled={pushingTeams}
+                onClick={async () => {
+                  setPushingTeams(true);
+                  try {
+                    await api('/review/digest/push-teams', { method: 'POST', body: { text: previewText } });
+                    setPreviewText('');
+                    alert('Digest posted to the Teams channel!');
+                  } catch (e) {
+                    alert('Push to Teams failed: ' + e.message);
+                  } finally { setPushingTeams(false); }
+                }}
+                style={{
+                  padding: '8px 20px', borderRadius: 8, border: 'none',
+                  background: '#5059c9', color: '#fff', cursor: 'pointer',
+                  fontWeight: 600, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6,
+                  opacity: pushingTeams ? 0.6 : 1
+                }}
+              >
+                <Send size={14} /> {pushingTeams ? 'Posting…' : 'Push to Teams'}
+              </button>
+
               <button
                 type="button"
                 onClick={async () => {
