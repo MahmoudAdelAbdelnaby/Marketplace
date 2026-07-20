@@ -49,9 +49,17 @@ pwd = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2")
 ROLES = ("waiting", "viewer", "product_owner", "committee", "approver", "admin")
+REVIEWER_ROLES = ("committee", "approver", "admin")
 
 
 # ----------------------------------------------------------------- models
+class Organization(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True, index=True)
+    created_at: float = Field(default_factory=lambda: time.time())
+    default_permissions: dict = Field(default={}, sa_column=Column(JSON))
+
+
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     email: str = Field(index=True, unique=True)
@@ -65,6 +73,8 @@ class User(SQLModel, table=True):
     ai_credits: int = Field(default=5)
     ai_usage: int = Field(default=0)
     created_at: float = Field(default_factory=lambda: time.time())
+    org_id: Optional[int] = None
+    permissions: dict = Field(default={}, sa_column=Column(JSON))
 
 
 class Tool(SQLModel, table=True):
@@ -247,6 +257,7 @@ class Invitation(SQLModel, table=True):
     created_at: float = Field(default_factory=lambda: time.time())
     expires_at: float
     status: str = "pending"  # pending | accepted
+    org_id: Optional[int] = None
 
 
 class Setting(SQLModel, table=True):
@@ -313,6 +324,19 @@ class AdminPasswordResetIn(BaseModel):
 class InviteIn(BaseModel):
     email: str
     role: str
+    org_id: Optional[int] = None
+
+class OrganizationIn(BaseModel):
+    name: str
+    default_permissions: Optional[dict] = {}
+
+class UserPermissionsIn(BaseModel):
+    role: str
+    org_id: Optional[int] = None
+    permissions: dict
+
+class SettingsIn(BaseModel):
+    global_default_ai_credits: int
 
 
 class SponsorIn(BaseModel):
@@ -374,10 +398,11 @@ def optional_user(authorization: str = Header(default=""), s: Session = Depends(
     if not authorization.startswith("Bearer "):
         return None
     try:
-        data = jwt.decode(authorization.split(" ", 1)[1], SECRET, algorithms=[ALGO])
-    except jwt.PyJWTError:
+        token_val = authorization.split(" ", 1)[1]
+        data = jwt.decode(token_val, SECRET, algorithms=[ALGO])
+        return s.get(User, int(data["sub"]))
+    except Exception:
         return None
-    return s.get(User, int(data["sub"]))
 
 
 
@@ -404,8 +429,56 @@ def require(*roles):
     return dep
 
 
+SYSTEM_DEFAULTS = {
+    "can_see_client_names": True,
+    "can_see_roi": True,
+    "can_submit_tools": True,
+    "can_submit_ideas": True,
+    "can_push_live_demos": True,
+    "can_view_voc": True,
+    "can_submit_voc": True,
+    "allowed_categories": ["all"],
+    "allowed_tools": ["all"],
+    "allowed_pages": ["catalog", "roadmap", "matchmaker", "insights", "settings"],
+    "ai_credits_override": 5
+}
+
+def get_effective_permissions(u: User, s: Session) -> dict:
+    if u.role in REVIEWER_ROLES:
+        return {
+            "can_see_client_names": True,
+            "can_see_roi": True,
+            "can_submit_tools": True,
+            "can_submit_ideas": True,
+            "can_push_live_demos": True,
+            "can_view_voc": True,
+            "can_submit_voc": True,
+            "allowed_categories": ["all"],
+            "allowed_tools": ["all"],
+            "allowed_pages": ["catalog", "roadmap", "matchmaker", "insights", "settings"],
+            "ai_credits_override": 9999
+        }
+    perms = dict(SYSTEM_DEFAULTS)
+    credits_setting = s.exec(select(Setting).where(Setting.key == "global_default_ai_credits")).first()
+    if credits_setting:
+        perms["ai_credits_override"] = int(credits_setting.value)
+        
+    if getattr(u, "org_id", None):
+        org = s.get(Organization, u.org_id)
+        if org and org.default_permissions:
+            for k, v in org.default_permissions.items():
+                if v is not None:
+                    perms[k] = v
+    user_perms = getattr(u, "permissions", None) or {}
+    for k, v in user_perms.items():
+        if v is not None:
+            perms[k] = v
+    return perms
+
+
 def public_user(u: User) -> dict:
     daily_count = 0
+    effective_perms = SYSTEM_DEFAULTS
     try:
         today_start = dt.datetime.combine(dt.date.today(), dt.time.min).timestamp()
         with Session(engine) as s:
@@ -414,6 +487,7 @@ def public_user(u: User) -> dict:
                 .where(AIAuditLog.user_id == u.id)
                 .where(AIAuditLog.created_at >= today_start)
             ).all())
+            effective_perms = get_effective_permissions(u, s)
     except Exception:
         pass
 
@@ -426,15 +500,23 @@ def public_user(u: User) -> dict:
         "ai_provider": u.ai_provider,
         "has_ai_key": bool(u.ai_key),
         "ai_model": getattr(u, "ai_model", "llama3.2"),
-        "ai_credits": u.ai_credits,
+        "ai_credits": effective_perms.get("ai_credits_override", u.ai_credits),
         "ai_usage": u.ai_usage,
-        "daily_usage": daily_count
+        "daily_usage": daily_count,
+        "org_id": getattr(u, "org_id", None),
+        "permissions": effective_perms
     }
 
 
-def public_tool(t: Tool) -> dict:
+def public_tool(t: Tool, u: Optional[User] = None, s: Optional[Session] = None) -> dict:
     d = t.dict()
     d.pop("demo_html", None)
+    if u and s:
+        perms = get_effective_permissions(u, s)
+        if not perms.get("can_see_roi", True):
+            d["roi"] = 0
+        if not perms.get("can_see_client_names", True):
+            d["account"] = "Confidential Client"
     return d
 
 
@@ -472,7 +554,25 @@ def validate_invite(token: str, s: Session = Depends(get_session)):
 @app.post("/auth/register")
 def register(body: RegisterIn, s: Session = Depends(get_session)):
     email = body.email.lower().strip()
-    if not email.endswith("@concentrix.com"):
+    invite_role = None
+    invite_org_id = None
+    
+    if body.token:
+        inv = s.exec(select(Invitation).where(Invitation.token == body.token)).first()
+        if not inv:
+            raise HTTPException(400, "Invitation token is invalid.")
+        if inv.status != "pending":
+            raise HTTPException(400, "Invitation token has already been used.")
+        if inv.expires_at < time.time():
+            raise HTTPException(400, "Invitation token has expired.")
+        if inv.email.lower().strip() != email:
+            raise HTTPException(400, "Invitation token email mismatch.")
+        invite_role = inv.role
+        invite_org_id = inv.org_id
+        inv.status = "accepted"
+        s.add(inv)
+        
+    if not email.endswith("@concentrix.com") and not invite_role:
         raise HTTPException(400, "Registration is restricted to @concentrix.com email addresses.")
     
     password = body.password
@@ -490,25 +590,11 @@ def register(body: RegisterIn, s: Session = Depends(get_session)):
     if s.exec(select(User).where(User.email == email)).first():
         raise HTTPException(400, "Email already registered")
 
-    invite_role = None
-    if body.token:
-        inv = s.exec(select(Invitation).where(Invitation.token == body.token)).first()
-        if not inv:
-            raise HTTPException(400, "Invitation token is invalid.")
-        if inv.status != "pending":
-            raise HTTPException(400, "Invitation token has already been used.")
-        if inv.expires_at < time.time():
-            raise HTTPException(400, "Invitation token has expired.")
-        if inv.email != email:
-            raise HTTPException(400, "Invitation token email mismatch.")
-        invite_role = inv.role
-        inv.status = "accepted"
-        s.add(inv)
-
     role = invite_role if invite_role else "waiting"
     
     u = User(email=email, name=body.name or email.split("@")[0], role=role,
-             department=body.department or "", password_hash=pwd.hash(body.password))
+             department=body.department or "", password_hash=pwd.hash(body.password),
+             org_id=invite_org_id, permissions={})
     s.add(u); s.commit(); s.refresh(u)
 
     if role == "waiting":
@@ -569,27 +655,37 @@ def change_password(body: ChangePasswordIn, u: User = Depends(current_user), s: 
 
 # ----------------------------------------------------------------- tools
 @app.get("/tools")
-def list_tools(s: Session = Depends(get_session)):
+def list_tools(u: Optional[User] = Depends(optional_user), s: Session = Depends(get_session)):
     rows = s.exec(select(Tool).where(Tool.review_status == "approved").order_by(Tool.created_at.desc())).all()
-    return [public_tool(t) for t in rows]
+    if u:
+        perms = get_effective_permissions(u, s)
+        allowed_cats = perms.get("allowed_categories", ["all"])
+        if "all" not in allowed_cats:
+            rows = [t for t in rows if t.category in allowed_cats]
+        allowed_tls = perms.get("allowed_tools", ["all"])
+        if "all" not in allowed_tls:
+            allowed_ids = [int(x) for x in allowed_tls if str(x).isdigit()]
+            rows = [t for t in rows if t.id in allowed_ids]
+    return [public_tool(t, u, s) for t in rows]
 
 
 @app.get("/my/tools")
 def my_tools(u: User = Depends(current_user), s: Session = Depends(get_session)):
     rows = s.exec(select(Tool).order_by(Tool.created_at.desc())).all()
     filtered = [t for t in rows if is_owner_or_co_owner(t, u)]
-    return [public_tool(t) for t in filtered]
+    return [public_tool(t, u, s) for t in filtered]
 
 
 @app.get("/review/tools")
 def review_tools(u: User = Depends(require("committee", "approver", "admin")), s: Session = Depends(get_session)):
     rows = s.exec(select(Tool).where(Tool.review_status.in_(["pending", "changes"])).order_by(Tool.created_at)).all()
-    return [public_tool(t) for t in rows]
+    return [public_tool(t, u, s) for t in rows]
+
 
 @app.get("/archive/tools")
 def archive_tools(u: User = Depends(require("committee", "approver", "admin")), s: Session = Depends(get_session)):
     rows = s.exec(select(Tool).where(Tool.review_status.in_(["declined", "changes"])).order_by(Tool.created_at.desc())).all()
-    return [public_tool(t) for t in rows]
+    return [public_tool(t, u, s) for t in rows]
 
 
 def save_uploaded_ppt_as_pdf(ppt_data_url: str) -> str:
@@ -801,12 +897,14 @@ def auto_trigger_container_build_if_needed(tool: Tool, session: Session):
                         "demo_container_build_logs": "Analyzing ZIP codebase and running AI security audit...\n"
                     })
                     
+                    custom_prompt = get_system_prompt(s, "prompt_security_audit")
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     audit = loop.run_until_complete(analyze_and_audit_zip_codebase(
                         zip_path, api_key or "",
                         ai_enabled=cfg["ai_enabled"], provider=cfg["provider"],
                         local_url=cfg["local_url"], local_model=cfg["local_model"],
+                        custom_prompt=custom_prompt,
                     ))
                     loop.close()
                     
@@ -877,9 +975,19 @@ def get_tool(tool_id: int, u: Optional[User] = Depends(optional_user), s: Sessio
     if not t: raise HTTPException(404, "Not found")
     if t.review_status != "approved":
         if not u: raise HTTPException(401, "Authentication required for pending tools")
-        if not is_owner_or_co_owner(t, u) and u.role not in ("committee", "approver", "admin"):
+        if not is_owner_or_co_owner(t, u) and u.role not in REVIEWER_ROLES:
             raise HTTPException(403, "Access denied")
-    return public_tool(t)
+    elif u:
+        perms = get_effective_permissions(u, s)
+        allowed_cats = perms.get("allowed_categories", ["all"])
+        if "all" not in allowed_cats and t.category not in allowed_cats:
+            raise HTTPException(403, "Access to this category is restricted.")
+        allowed_tls = perms.get("allowed_tools", ["all"])
+        if "all" not in allowed_tls:
+            allowed_ids = [int(x) for x in allowed_tls if str(x).isdigit()]
+            if t.id not in allowed_ids:
+                raise HTTPException(403, "Access to this product is restricted.")
+    return public_tool(t, u, s)
 
 
 @app.patch("/tools/{tool_id}")
@@ -1193,12 +1301,15 @@ async def trigger_demo_build(tool_id: int, u: User = Depends(current_user), s: S
                     bs.add(bt); bs.commit()
         try:
             from analyzer import analyze_and_audit_zip_codebase
+            with Session(engine) as prompt_s:
+                custom_prompt = get_system_prompt(prompt_s, "prompt_security_audit")
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             audit = loop.run_until_complete(analyze_and_audit_zip_codebase(
                 zip_path, api_key or "",
                 ai_enabled=cfg["ai_enabled"], provider=cfg["provider"],
                 local_url=cfg["local_url"], local_model=cfg["local_model"],
+                custom_prompt=custom_prompt,
             ))
             loop.close()
 
@@ -1332,23 +1443,8 @@ async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends
                 
     data_str = "\n".join(input_lines) if (tools or ideas) else "No pending items."
     
-    prompt = f"""You are the Executive Innovation Assistant. Act as a seasoned chief of staff creating a comprehensive, detailed, and highly informative executive summary for the innovation board.
-Read the list of pending submissions (tools and ideas awaiting review) and produce a high-impact, professional weekly cadence board Executive Digest.
-
-Guidelines:
-1. Start with a header:
-   "🚀 **Weekly Innovation Board Digest - {dt.date.today().isoformat()}**"
-   followed by a brief 1-2 sentence overview of overall pending activity (e.g. "We currently have {len(tools)} tool(s) and {len(ideas)} idea(s) awaiting review. Please find the detailed executive summaries and recommended actions below.")
-2. Group the items into:
-   - **🎯 Tools Awaiting Approval**: For each tool, provide its name, owner, department, and a detailed summary of its features, core value (what specific problem it solves, its main technical capabilities/deliverables), estimated ROI/savings, and a clear board Recommendation (e.g. "Approve for Pilot", "Schedule Demo", "Return to Owner for Info").
-   - **💡 Community Ideas**: For each idea, provide its name, owner, community votes/engagement level, a thorough description of its intent and features, and recommended next steps/actions.
-3. CRITICAL: Do NOT consolidate or group distinct submissions under generic categories. Every single submission must be detailed individually by name so the board knows exactly what it is reviewing and approving.
-4. For each submission, do NOT overly condense the original description or problem statement. You must be descriptive and thorough, providing a detailed breakdown (typically 4-6 sentences or multiple clear bullet points per item) that highlights its unique features, technical flavor, and how it functions. If the input data has specific details, make sure to include them in the summary.
-5. Keep the formatting clean, professional, and well-spaced with clear paragraph separations.
-
-Pending Submissions List:
-{data_str}
-"""
+    sys_prompt = get_system_prompt(s, "prompt_executive_digest")
+    prompt = f"{sys_prompt}\n\nPending Submissions List:\n{data_str}"
 
     start_time = time.time()
     
@@ -1591,18 +1687,24 @@ def review_idea(idea_id: int, body: ReviewIn, u: User = Depends(require("committ
 # ----------------------------------------------------------------- VOC
 @app.get("/voc")
 def get_vocs(u: User = Depends(current_user), s: Session = Depends(get_session)):
+    perms = get_effective_permissions(u, s)
+    if not perms.get("can_view_voc", True):
+        raise HTTPException(403, "Access denied. You do not have permission to view Voice of Clients feedback.")
     rows = s.exec(select(VocIssue).order_by(VocIssue.created_at.desc())).all()
-    if u.role not in ("admin", "committee", "approver"):
+    if not perms.get("can_see_client_names", True):
         results = []
         for r in rows:
             d = r.dict()
-            d["client"] = "Confidential" if d.get("client") else ""
+            d["client"] = "Confidential Client" if d.get("client") else ""
             results.append(d)
         return results
     return [r.dict() for r in rows]
 
 @app.post("/voc")
 def create_voc(body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    perms = get_effective_permissions(u, s)
+    if not perms.get("can_submit_voc", True):
+        raise HTTPException(403, "Access denied. You do not have permission to submit Voice of Clients feedback.")
     v = VocIssue(
         owner_id=u.id, owner_name=u.name,
         title=body.get("title", ""),
@@ -1668,27 +1770,45 @@ def admin_users(u: User = Depends(require("admin")), s: Session = Depends(get_se
 
 
 @app.post("/admin/invites")
-def create_invite(body: InviteIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+def create_invite(body: InviteIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
     email = body.email.lower().strip()
-    if not email.endswith("@concentrix.com"):
-        raise HTTPException(400, "Invitation email must be a @concentrix.com address.")
     if body.role not in ROLES:
         raise HTTPException(400, f"Role must be one of {ROLES}")
         
+    if u.role != "admin":
+        try:
+            inviter_idx = ROLES.index(u.role)
+            invitee_idx = ROLES.index(body.role)
+        except ValueError:
+            raise HTTPException(400, "Invalid role specified.")
+        if invitee_idx > inviter_idx:
+            raise HTTPException(403, f"You cannot invite someone with a higher role than yours ({u.role}).")
+            
+    target_org_id = u.org_id
+    if u.role == "admin" and body.org_id is not None:
+        target_org_id = body.org_id
+        
     existing_user = s.exec(select(User).where(User.email == email)).first()
     if existing_user:
-        raise HTTPException(400, "A user with this email is already registered.")
+        if u.role != "admin":
+            try:
+                existing_idx = ROLES.index(existing_user.role)
+            except ValueError:
+                existing_idx = 0
+            if existing_idx > inviter_idx:
+                raise HTTPException(403, "Access denied. You cannot modify a user with a higher role than yours.")
         
     old_inv = s.exec(select(Invitation).where(Invitation.email == email)).first()
     if old_inv:
         s.delete(old_inv)
+        s.commit()
         
     token = secrets.token_urlsafe(32)
     expires_at = time.time() + (7 * 24 * 3600)
     
-    inv = Invitation(email=email, token=token, role=body.role, expires_at=expires_at)
+    inv = Invitation(email=email, token=token, role=body.role, expires_at=expires_at, org_id=target_org_id)
     s.add(inv); s.commit(); s.refresh(inv)
-    return {"token": inv.token, "email": inv.email, "role": inv.role}
+    return {"token": inv.token, "email": inv.email, "role": inv.role, "org_id": inv.org_id, "direct_added": False}
 
 
 @app.get("/admin/invites")
@@ -1702,6 +1822,244 @@ def delete_invite(invite_id: int, u: User = Depends(require("admin")), s: Sessio
     if not inv: raise HTTPException(404, "Invitation not found")
     s.delete(inv); s.commit()
     return {"ok": True}
+
+
+@app.get("/admin/users")
+def admin_list_users(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    users = s.exec(select(User).order_by(User.created_at.desc())).all()
+    orgs = {org.id: org.name for org in s.exec(select(Organization)).all()}
+    res = []
+    for user in users:
+        d = public_user(user)
+        d["org_name"] = orgs.get(user.org_id, "Concentrix Internal") if user.org_id else "Concentrix Internal"
+        res.append(d)
+    return res
+
+
+@app.put("/admin/users/{user_id}/permissions")
+def admin_update_permissions(user_id: int, body: UserPermissionsIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    target = s.get(User, user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+    if body.role not in ROLES:
+        raise HTTPException(400, f"Role must be one of {ROLES}")
+    target.role = body.role
+    target.org_id = body.org_id
+    target.permissions = body.permissions
+    s.add(target); s.commit(); s.refresh(target)
+    return public_user(target)
+
+
+@app.get("/admin/organizations")
+def admin_list_organizations(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    return s.exec(select(Organization).order_by(Organization.name)).all()
+
+
+@app.post("/admin/organizations")
+def admin_create_organization(body: OrganizationIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    if s.exec(select(Organization).where(Organization.name == body.name)).first():
+        raise HTTPException(400, "Organization name already exists")
+    org = Organization(name=body.name, default_permissions=body.default_permissions)
+    s.add(org); s.commit(); s.refresh(org)
+    return org
+
+
+@app.get("/admin/settings")
+def admin_get_settings(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    credits_setting = s.exec(select(Setting).where(Setting.key == "global_default_ai_credits")).first()
+    return {
+        "global_default_ai_credits": int(credits_setting.value) if credits_setting else 5
+    }
+
+
+@app.put("/admin/settings")
+def admin_update_settings(body: SettingsIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    credits_setting = s.exec(select(Setting).where(Setting.key == "global_default_ai_credits")).first()
+    if not credits_setting:
+        credits_setting = Setting(key="global_default_ai_credits", value=str(body.global_default_ai_credits))
+    else:
+        credits_setting.value = str(body.global_default_ai_credits)
+    s.add(credits_setting); s.commit()
+    return {"ok": True}
+
+
+@app.post("/admin/users/reset-ai-credits")
+def admin_reset_ai_credits(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    s.exec(delete(AIAuditLog))
+    s.commit()
+    return {"ok": True}
+
+
+@app.get("/org/members")
+def list_org_members(org_id: Optional[int] = None, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    target_org_id = u.org_id
+    if u.role == "admin" and org_id is not None:
+        target_org_id = org_id
+        
+    if not target_org_id:
+        raise HTTPException(400, "User does not belong to an organization.")
+        
+    members = s.exec(select(User).where(User.org_id == target_org_id).order_by(User.created_at.desc())).all()
+    invites = s.exec(select(Invitation).where(Invitation.org_id == target_org_id).order_by(Invitation.created_at.desc())).all()
+    
+    org_name = "Concentrix Internal"
+    org = s.get(Organization, target_org_id)
+    if org:
+        org_name = org.name
+        
+    res_members = []
+    for m in members:
+        d = public_user(m)
+        d["org_name"] = org_name
+        res_members.append(d)
+        
+    return {
+        "members": res_members,
+        "invites": invites,
+        "org_name": org_name,
+        "org_id": target_org_id,
+        "org_default_permissions": org.default_permissions if org else {}
+    }
+
+
+@app.put("/org/members/{member_id}/permissions")
+def update_org_member_permissions(member_id: int, body: UserPermissionsIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    target = s.get(User, member_id)
+    if not target:
+        raise HTTPException(404, "Member not found")
+        
+    if u.role != "admin":
+        if target.org_id != u.org_id:
+            raise HTTPException(403, "Access denied. Target user belongs to a different organization.")
+        if body.org_id != u.org_id:
+            raise HTTPException(403, "Access denied. You cannot assign users to other organizations.")
+            
+        try:
+            caller_idx = ROLES.index(u.role)
+            target_idx = ROLES.index(target.role)
+            new_idx = ROLES.index(body.role)
+        except ValueError:
+            raise HTTPException(400, "Invalid role specified.")
+            
+        if caller_idx < 2:
+            raise HTTPException(403, "Access denied. You must be a Product Owner or higher to manage organization members.")
+        if target_idx > caller_idx:
+            raise HTTPException(403, "Access denied. You cannot modify a user with a higher role than yours.")
+        if new_idx > caller_idx:
+            raise HTTPException(403, "Access denied. You cannot assign a role higher than yours.")
+            
+    if body.role not in ROLES:
+        raise HTTPException(400, f"Role must be one of {ROLES}")
+        
+    target.role = body.role
+    if u.role == "admin":
+        target.org_id = body.org_id
+    else:
+        target.org_id = u.org_id
+        
+    target.permissions = body.permissions
+    s.add(target); s.commit(); s.refresh(target)
+    return public_user(target)
+
+
+@app.post("/org/invites")
+def create_org_invite(body: InviteIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    email = body.email.lower().strip()
+    if body.role not in ROLES:
+        raise HTTPException(400, f"Role must be one of {ROLES}")
+        
+    if u.role != "admin":
+        try:
+            caller_idx = ROLES.index(u.role)
+            invitee_idx = ROLES.index(body.role)
+        except ValueError:
+            raise HTTPException(400, "Invalid role specified.")
+        if caller_idx < 2:
+            raise HTTPException(403, "Access denied. You must be a Product Owner or higher to invite organization members.")
+        if invitee_idx > caller_idx:
+            raise HTTPException(403, f"You cannot invite someone with a role higher than yours ({u.role}).")
+            
+    target_org_id = u.org_id
+    if u.role == "admin" and body.org_id is not None:
+        target_org_id = body.org_id
+        
+    if target_org_id is None:
+        raise HTTPException(400, "Organization ID is required.")
+
+    existing_user = s.exec(select(User).where(User.email == email)).first()
+    if existing_user:
+        if u.role != "admin":
+            try:
+                existing_idx = ROLES.index(existing_user.role)
+            except ValueError:
+                existing_idx = 0
+            if existing_idx > caller_idx:
+                raise HTTPException(403, "Access denied. You cannot modify a user with a higher role than yours.")
+        
+    old_inv = s.exec(select(Invitation).where(Invitation.email == email)).first()
+    if old_inv:
+        s.delete(old_inv)
+        s.commit()
+        
+    token = secrets.token_urlsafe(32)
+    expires_at = time.time() + (7 * 24 * 3600)
+    
+    inv = Invitation(email=email, token=token, role=body.role, expires_at=expires_at, org_id=target_org_id)
+    s.add(inv); s.commit(); s.refresh(inv)
+    return {"token": inv.token, "email": inv.email, "role": inv.role, "org_id": inv.org_id, "direct_added": False}
+
+
+@app.delete("/org/invites/{invite_id}")
+def delete_org_invite(invite_id: int, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    inv = s.get(Invitation, invite_id)
+    if not inv: raise HTTPException(404, "Invitation not found")
+    if u.role != "admin" and inv.org_id != u.org_id:
+        raise HTTPException(403, "Access denied")
+    s.delete(inv); s.commit()
+    return {"ok": True}
+
+@app.get("/org/my-invitations")
+def get_my_invitations(u: User = Depends(current_user), s: Session = Depends(get_session)):
+    now = time.time()
+    invs = s.exec(
+        select(Invitation)
+        .where(Invitation.email == u.email)
+        .where(Invitation.status == "pending")
+        .where(Invitation.expires_at > now)
+    ).all()
+    
+    results = []
+    for inv in invs:
+        d = inv.dict()
+        org = s.get(Organization, inv.org_id) if inv.org_id else None
+        d["org_name"] = org.name if org else "Concentrix (Internal)"
+        results.append(d)
+    return results
+
+@app.post("/org/my-invitations/{invite_id}/respond")
+def respond_to_invitation(invite_id: int, body: dict, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    action = body.get("action")
+    if action not in ("accept", "decline"):
+        raise HTTPException(400, "Action must be accept or decline")
+        
+    inv = s.get(Invitation, invite_id)
+    if not inv or inv.email != u.email or inv.status != "pending" or inv.expires_at < time.time():
+        raise HTTPException(404, "Pending invitation not found or expired")
+        
+    if action == "accept":
+        inv.status = "accepted"
+        u.org_id = inv.org_id
+        u.role = inv.role
+        u.permissions = {}  # Clear custom overrides so they inherit defaults
+        s.add(inv)
+        s.add(u)
+        s.commit()
+        return {"ok": True, "action": "accepted", "user": public_user(u)}
+    else:
+        inv.status = "declined"
+        s.add(inv)
+        s.commit()
+        return {"ok": True, "action": "declined"}
 
 
 @app.put("/admin/users/{user_id}/role")
@@ -1879,8 +2237,10 @@ async def ai_generate(body: AIGenerateIn, u: User = Depends(current_user), s: Se
             .where(AIAuditLog.user_id == u.id)
             .where(AIAuditLog.created_at >= today_start)
         ).all())
-        if used_today >= u.ai_credits:
-            raise HTTPException(403, f"You have used all {u.ai_credits} daily AI credits ({used_today}/{u.ai_credits}). They reset at midnight, or ask an admin to raise your limit.")
+        perms = get_effective_permissions(u, s)
+        limit = perms.get("ai_credits_override", u.ai_credits)
+        if used_today >= limit:
+            raise HTTPException(403, f"You have used all {limit} daily AI credits ({used_today}/{limit}). They reset at midnight, or ask an admin to raise your limit.")
 
     prompt = body.prompt
     start_time = time.time()
@@ -2433,6 +2793,137 @@ def refresh_user_usage(user_id: int, u: User = Depends(require("admin")), s: Ses
     return public_user(target_user)
 
 
+# ----------------------------------------------------------------- AI System Prompts Management
+DEFAULT_PROMPTS = {
+    "prompt_matchmaker": """You are the Analytics AI Hub Matchmaker. Your job is to match the user's business pain point or problem statement with the best existing solutions in our catalog.
+
+Instructions:
+1. Recommend the most relevant matching tools (up to 3).
+2. Spacing and readability: Do NOT write your response in a single continuous paragraph. Put each recommended tool on its own separate line/paragraph, separated by double newlines (\\n\\n) to create a clean, well-spaced, and easily scannable response.
+3. Link formatting (CRITICAL):
+   - NEVER mention "Tool ID: X" or place links on the ID number (e.g. do NOT output "[Tool ID: 3](/tools/3)").
+   - The hyperlink MUST be placed directly on the tool name itself in the format: [Tool Name](/tools/id). For example: [Process Mining Engine](/tools/3).
+   - Do NOT write the tool name twice. Write it ONLY once as the hyperlink.
+4. Local relative routes only: Always use local relative paths for local routing. For the Idea Pipeline, use exactly: [Idea Pipeline](/ideas). Never append external placeholder domains.
+5. Be professional, clear, encouraging, and concise.""",
+
+    "prompt_executive_digest": """You are the Executive Innovation Assistant. Act as an assistant creating an executive summary for the board to review and approve.
+Read the following list of pending submissions (tools and ideas awaiting review) and produce a high-impact, professional, ready-to-paste weekly cadence channel Executive Digest.
+
+Guidelines:
+1. Start with a header like:
+   "🚀 **Weekly Innovation Board Digest**"
+   followed by a brief 1-2 sentence overview of overall pending activity.
+2. Group the items into:
+   - **🎯 Tools Awaiting Approval**: Summarize each tool's core value, and give a clear board Recommendation (e.g. "Approve for Pilot", "Schedule Demo", "Return to Owner for Info").
+   - **💡 Community Ideas**: Summarize proposed ideas, noting community votes/demand, and suggest next steps.
+3. For each item, keep it concise (2-3 sentences max) but complete. Highlight estimated ROI or community impact.
+4. Keep the format clean, well-spaced, and actionable for board members.""",
+
+    "prompt_security_audit": """You are a senior devops and security auditor.
+Analyze the application codebase structure and configuration files.
+
+1. **Security Audit**: Scan for:
+   - Command injection vulnerabilities or shells (e.g. exec, subprocess.Popen without shell=False, eval).
+   - Infinite loops, CPU exhaustion patterns, or storage overload logic.
+   - Remote code execution (RCE) hooks, malicious file writes, or credential stealing.
+   - Flag the decision as "flag" if unsafe, otherwise "approve".
+2. **Framework & Tech Stack Detection**: Determine if it's React/Vite, Node.js, Python FastAPI/Flask, static HTML, etc.
+3. **Container Port**: Detect the listening port of the app (default to 80 for static, 8000 for Python, 3000/5000/8080 for Node).
+4. **Dockerfile Generation**: Generate a single-container multi-stage Dockerfile that builds and runs this application cleanly.
+
+Return your response EXACTLY as a JSON object, with no markdown formatting or triple backticks.""",
+
+    "prompt_scoping_evaluator": """You are an Enterprise Innovation & Scoping Strategist.
+Evaluate the provided Innovation Opportunity Canvas and problem statement.
+
+Instructions:
+1. Assess the clarity of the problem, targeted business impact, estimated ROI, and technical feasibility.
+2. Provide constructive feedback for improving the scoping.
+3. Assign a Completeness Score (0% to 100%) based on how ready this idea is for committee review.
+4. Suggest 2-3 immediate next steps for the owner to advance this idea into a prototype."""
+}
+
+PROMPT_METADATA = {
+    "prompt_matchmaker": {
+        "title": "AI Matchmaker & Copilot Assistant",
+        "description": "System prompt used by the AI Matchmaker chat and floating Copilot drawer to match user pain points with catalog tools.",
+        "category": "Chat & Guidance"
+    },
+    "prompt_executive_digest": {
+        "title": "AI Executive Board Digest",
+        "description": "System prompt used by the Review Center to generate weekly board digests of pending tools and ideas.",
+        "category": "Review & Reporting"
+    },
+    "prompt_security_audit": {
+        "title": "AI Code Security Auditor & Docker Builder",
+        "description": "System prompt used when scanning uploaded tool ZIP files for security vulnerabilities and generating Dockerfiles.",
+        "category": "Security & Build"
+    },
+    "prompt_scoping_evaluator": {
+        "title": "AI Canvas Scoping & Strategic Evaluator",
+        "description": "System prompt used when evaluating Innovation Opportunity Canvases and generating strategic board pitches.",
+        "category": "Idea Pipeline"
+    }
+}
+
+def get_system_prompt(s: Session, key: str) -> str:
+    setting = s.exec(select(Setting).where(Setting.key == key)).first()
+    if setting and setting.value and setting.value.strip():
+        return setting.value
+    return DEFAULT_PROMPTS.get(key, "")
+
+@app.get("/admin/prompts")
+def get_admin_prompts(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    result = {}
+    for key, default_val in DEFAULT_PROMPTS.items():
+        setting = s.exec(select(Setting).where(Setting.key == key)).first()
+        meta = PROMPT_METADATA.get(key, {})
+        val = setting.value if (setting and setting.value) else default_val
+        result[key] = {
+            "key": key,
+            "title": meta.get("title", key),
+            "description": meta.get("description", ""),
+            "category": meta.get("category", "General"),
+            "value": val,
+            "default_value": default_val,
+            "is_custom": bool(setting and setting.value and setting.value != default_val)
+        }
+    return result
+
+class PromptsUpdateIn(BaseModel):
+    prompts: dict
+
+@app.put("/admin/prompts")
+def update_admin_prompts(body: PromptsUpdateIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    for key, value in body.prompts.items():
+        if key in DEFAULT_PROMPTS:
+            setting = s.exec(select(Setting).where(Setting.key == key)).first()
+            if not setting:
+                setting = Setting(key=key, value=value)
+            else:
+                setting.value = value
+            s.add(setting)
+    s.commit()
+    return {"ok": True, "message": "AI System Prompts saved successfully."}
+
+@app.post("/admin/prompts/reset")
+def reset_admin_prompt(body: dict, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    key = body.get("key")
+    if key in DEFAULT_PROMPTS:
+        setting = s.exec(select(Setting).where(Setting.key == key)).first()
+        if setting:
+            s.delete(setting)
+            s.commit()
+    return {"ok": True, "message": f"Prompt '{key}' reset to default."}
+
+@app.get("/ai/system-prompt/{key}")
+def get_public_system_prompt(key: str, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    if key not in DEFAULT_PROMPTS:
+        raise HTTPException(404, "Prompt key not found")
+    return {"key": key, "prompt": get_system_prompt(s, key)}
+
+
 # ----------------------------------------------------------------- startup / migrate / seed
 def migrate():
     if "sqlite" not in str(engine.url):
@@ -2471,9 +2962,14 @@ def migrate():
         
         ucols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(user)").fetchall()]
         for col, ddl in [("ai_model", "VARCHAR DEFAULT 'llama3.2'"), ("department", "VARCHAR DEFAULT ''"),
-                         ("ai_credits", "INTEGER DEFAULT 5"), ("ai_usage", "INTEGER DEFAULT 0")]:
+                         ("ai_credits", "INTEGER DEFAULT 5"), ("ai_usage", "INTEGER DEFAULT 0"),
+                         ("org_id", "INTEGER DEFAULT NULL"), ("permissions", "JSON DEFAULT '{}'")]:
             if ucols and col not in ucols:
                 conn.exec_driver_sql(f"ALTER TABLE user ADD COLUMN {col} {ddl}")
+
+        inv_cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(invitation)").fetchall()]
+        if inv_cols and "org_id" not in inv_cols:
+            conn.exec_driver_sql("ALTER TABLE invitation ADD COLUMN org_id INTEGER DEFAULT NULL")
 
         gcols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(globalapikey)").fetchall()]
         for col, ddl in [("daily_requests_count", "INTEGER DEFAULT 0"),
@@ -2487,6 +2983,9 @@ def seed():
     with Session(engine) as s:
         if not s.exec(select(Setting).where(Setting.key == "idea_routing")).first():
             s.add(Setting(key="idea_routing", value="committee"))
+            s.commit()
+        if not s.exec(select(Setting).where(Setting.key == "global_default_ai_credits")).first():
+            s.add(Setting(key="global_default_ai_credits", value="5"))
             s.commit()
         if not s.exec(select(User).where(User.email == "admin")).first():
             s.add(User(email="admin", name="Admin", role="admin", password_hash=pwd.hash("admin")))

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ShieldCheck, Key, Users, Settings, BarChart2, Check, Trash2, ArrowUpDown, Sparkles, UserPlus, Eye, Play, Mail, FileText, Zap, Activity, Search, MousePointerClick, GitPullRequest, Bot, Star, GripVertical, Vote, Send, UserCheck } from 'lucide-react';
 import { api } from '../../api';
 import { useAuthStore } from '../../store/useAuthStore';
+import AccessControlTab from './AccessControlTab';
 
 const ROLES = ['viewer', 'product_owner', 'committee', 'approver', 'admin'];
 const ROLE_LABEL = { waiting: 'Waiting', viewer: 'Viewer', product_owner: 'Product Owner', committee: 'Committee (Reviewer)', approver: 'Approver', admin: 'Admin' };
@@ -62,7 +63,7 @@ export default function AdminCenter() {
   const [inviteRole, setInviteRole] = useState('viewer');
 
   // Navigation tab states
-  const [adminTab, setAdminTab] = useState('users');
+  const [adminTab, setAdminTab] = useState('access');
   const [analyticsSubTab, setAnalyticsSubTab] = useState('time_spent');
 
   // AI credits editing states
@@ -81,6 +82,70 @@ export default function AdminCenter() {
 
   // Analytics states
   const [timeSpentData, setTimeSpentData] = useState([]);
+
+  // AI System Prompts states
+  const [prompts, setPrompts] = useState({});
+  const [loadingPrompts, setLoadingPrompts] = useState(false);
+  const [savingPrompts, setSavingPrompts] = useState(false);
+
+  const fetchPrompts = async () => {
+    setLoadingPrompts(true);
+    try {
+      const data = await api('/admin/prompts');
+      setPrompts(data);
+    } catch (e) {
+      console.error('Failed to load AI system prompts:', e);
+    } finally {
+      setLoadingPrompts(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPrompts();
+  }, []);
+
+  const handlePromptChange = (key, newValue) => {
+    setPrompts(prev => ({
+      ...prev,
+      [key]: {
+        ...prev[key],
+        value: newValue,
+        is_custom: newValue !== prev[key]?.default_value
+      }
+    }));
+  };
+
+  const handleSavePrompts = async () => {
+    setSavingPrompts(true);
+    setErr('');
+    setSuccessMsg('');
+    try {
+      const payload = {};
+      Object.keys(prompts).forEach(k => {
+        payload[k] = prompts[k].value;
+      });
+      await api('/admin/prompts', { method: 'PUT', body: { prompts: payload } });
+      setSuccessMsg('AI System Prompts updated successfully! Features will immediately use the updated prompts.');
+      await fetchPrompts();
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (e) {
+      setErr('Failed to save prompts: ' + e.message);
+    } finally {
+      setSavingPrompts(false);
+    }
+  };
+
+  const handleResetPrompt = async (key) => {
+    if (!window.confirm(`Reset "${prompts[key]?.title || key}" to its default factory prompt?`)) return;
+    try {
+      await api('/admin/prompts/reset', { method: 'POST', body: { key } });
+      setSuccessMsg(`Prompt "${prompts[key]?.title || key}" reset to factory default.`);
+      await fetchPrompts();
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } catch (e) {
+      setErr('Failed to reset prompt: ' + e.message);
+    }
+  };
   const [activityLogs, setActivityLogs] = useState([]);
   const [viewLogs, setViewLogs] = useState([]);
   const [searchQueries, setSearchQueries] = useState([]);
@@ -800,7 +865,7 @@ export default function AdminCenter() {
 
   if (me?.role !== 'admin') return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Admins only.</div>;
 
-  const TAB_ICONS = { users: Users, routing: Settings, sorting: ArrowUpDown, keys: Key, analytics: BarChart2 };
+  const TAB_ICONS = { access: ShieldCheck, users: Users, routing: Settings, sorting: ArrowUpDown, keys: Key, prompts: Bot, analytics: BarChart2 };
 
   return (
     <div style={{ position: 'relative', zIndex: 1, maxWidth: 1020, margin: '0 auto', padding: '32px 24px' }}>
@@ -811,7 +876,7 @@ export default function AdminCenter() {
         <div>
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 800, margin: 0, letterSpacing: '-0.02em' }}>Admin Center</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
-            Manage users, routing, catalog sorting, AI keys, and telemetry.
+            Manage users, organizations, permissions, routing, catalog sorting, AI system prompts, AI keys, and telemetry.
           </p>
         </div>
       </div>
@@ -826,10 +891,12 @@ export default function AdminCenter() {
       {/* TABS HEADER */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, borderBottom: '2px solid var(--border-color)', marginBottom: 24, paddingBottom: 0, marginTop: 20 }}>
         {[
+          { id: 'access', label: 'Access Control' },
           { id: 'users', label: 'Users & Roles' },
           { id: 'routing', label: 'Idea Routing' },
           { id: 'sorting', label: 'Catalog Sorting' },
           { id: 'keys', label: 'API Keys Pool' },
+          { id: 'prompts', label: 'AI System Prompts' },
           { id: 'analytics', label: 'Telemetry & Audits' }
         ].map((tab) => {
           const Icon = TAB_ICONS[tab.id];
@@ -861,6 +928,11 @@ export default function AdminCenter() {
           );
         })}
       </div>
+
+      {/* TAB CONTENT: ACCESS CONTROL */}
+      {adminTab === 'access' && (
+        <AccessControlTab api={api} />
+      )}
 
       {/* TAB CONTENT: USERS & ROLES */}
       {adminTab === 'users' && (
@@ -1644,6 +1716,120 @@ export default function AdminCenter() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* TAB CONTENT: AI SYSTEM PROMPTS */}
+      {adminTab === 'prompts' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)', padding: 24, borderRadius: 14, border: '1px solid var(--border-color)' }}>
+            <div>
+              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, margin: '0 0 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Bot size={20} style={{ color: 'var(--primary)' }} /> AI System Prompts & Instructions
+              </h2>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', maxWidth: 650 }}>
+                Control and customize the system instructions guiding AI behavior across all features—from the Matchmaker chat assistant to code security audits and executive board digests.
+              </p>
+            </div>
+            <button
+              onClick={handleSavePrompts}
+              disabled={savingPrompts}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                padding: '10px 22px', borderRadius: 10, background: 'var(--primary)',
+                color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer',
+                fontSize: 13.5, boxShadow: 'var(--shadow-md)', opacity: savingPrompts ? 0.7 : 1
+              }}
+            >
+              <Check size={16} /> {savingPrompts ? 'Saving Changes...' : 'Save All Prompts'}
+            </button>
+          </div>
+
+          {loadingPrompts ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading AI system prompts...</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {Object.values(prompts).map((item) => {
+                const words = item.value ? item.value.trim().split(/\s+/).length : 0;
+                const chars = item.value ? item.value.length : 0;
+                return (
+                  <div 
+                    key={item.key} 
+                    style={{ 
+                      background: 'var(--bg-card)', 
+                      border: '1px solid var(--border-color)', 
+                      borderRadius: 14, 
+                      padding: 24, 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      gap: 16 
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                          <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{item.title}</h3>
+                          <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(99,102,241,0.1)', color: '#6366f1', fontWeight: 700 }}>
+                            {item.category}
+                          </span>
+                          {item.is_custom ? (
+                            <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(234,179,8,0.12)', color: '#ca8a04', fontWeight: 700 }}>
+                              Customized (Active Override)
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(34,197,94,0.1)', color: '#16a34a', fontWeight: 700 }}>
+                              Factory Default
+                            </span>
+                          )}
+                        </div>
+                        <p style={{ margin: 0, fontSize: 12.5, color: 'var(--text-secondary)' }}>{item.description}</p>
+                      </div>
+
+                      {item.is_custom && (
+                        <button
+                          onClick={() => handleResetPrompt(item.key)}
+                          style={{
+                            padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-color)',
+                            background: 'transparent', color: 'var(--text-muted)', fontSize: 12,
+                            fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6
+                          }}
+                          onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--danger)'; e.currentTarget.style.color = 'var(--danger)'; }}
+                          onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                        >
+                          <Trash2 size={13} /> Reset to Default
+                        </button>
+                      )}
+                    </div>
+
+                    <div style={{ position: 'relative' }}>
+                      <textarea
+                        value={item.value || ''}
+                        onChange={(e) => handlePromptChange(item.key, e.target.value)}
+                        rows={8}
+                        style={{
+                          width: '100%',
+                          padding: '14px 16px',
+                          borderRadius: 10,
+                          border: '1px solid var(--border-color)',
+                          background: 'var(--bg-main)',
+                          color: 'var(--text-primary)',
+                          fontFamily: 'JetBrains Mono, Courier New, monospace',
+                          fontSize: 13,
+                          lineHeight: 1.5,
+                          resize: 'vertical',
+                          outline: 'none'
+                        }}
+                      />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, fontSize: 11.5, color: 'var(--text-muted)' }}>
+                        <span>Key: <code style={{ color: 'var(--primary-text)' }}>{item.key}</code></span>
+                        <span>{words} words • {chars} characters</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

@@ -57,20 +57,16 @@ export default function AIChatView() {
         .map(m => `${m.sender === 'user' ? 'User' : 'AI Matchmaker'}: ${m.text}`)
         .join('\n');
 
-      const prompt = `You are the Analytics AI Hub Matchmaker. Your job is to match the user's business pain point or problem statement with the best existing solutions in our catalog.
-      
+      let sysInstruction = "";
+      try {
+        const sysRes = await api('/ai/system-prompt/prompt_matchmaker');
+        sysInstruction = sysRes?.prompt || "";
+      } catch (e) {}
+
+      const prompt = `${sysInstruction || "You are the Analytics AI Hub Matchmaker. Your job is to match the user's business pain point or problem statement with the best existing solutions in our catalog."}
+
 Here is the catalog of existing tools:
 ${catalogContext}
-
-Instructions:
-1. Recommend the most relevant matching tools (up to 3).
-2. Spacing and readability: Do NOT write your response in a single continuous paragraph. Put each recommended tool on its own separate line/paragraph, separated by double newlines (\n\n) to create a clean, well-spaced, and easily scannable response.
-3. Link formatting (CRITICAL):
-   - NEVER mention "Tool ID: X" or place links on the ID number (e.g. do NOT output "[Tool ID: 3](/tools/3)").
-   - The hyperlink MUST be placed directly on the tool name itself in the format: [Tool Name](/tools/id). For example: [Process Mining Engine](/tools/3).
-   - Do NOT write the tool name twice. Write it ONLY once as the hyperlink. For example, do NOT write "[Process Mining Engine](/tools/3) Process Mining Engine: ...". Instead, write: "1. [Process Mining Engine](/tools/3): This tool helps..."
-4. Local relative routes only: Always use local relative paths for local routing. For the Idea Pipeline, use exactly: [Idea Pipeline](/ideas). Never append external placeholder domains or absolute URLs like "example.com" or "https://www.example.com/ideas".
-5. Be professional, clear, encouraging, and concise.
 
 Conversation history:
 ${historyStr}

@@ -133,6 +133,7 @@ async def analyze_and_audit_zip_codebase(
     provider: str = "gemini",
     local_url: str = "http://localhost:11434",
     local_model: str = "llama3.2",
+    custom_prompt: str = "",
 ) -> dict:
     """
     Extracts ZIP file, scans structures/key configuration files,
@@ -192,7 +193,10 @@ async def analyze_and_audit_zip_codebase(
         for f, content in found_key_files.items():
             contents_str += f"=== File: {f} ===\n{content}\n\n"
 
-        prompt = f"""You are a senior devops and security auditor.
+        if custom_prompt and custom_prompt.strip():
+            prompt = f"{custom_prompt.strip()}\n\nCodebase File List:\n{file_list_str}\n\nKey Configurations:\n{contents_str}"
+        else:
+            prompt = f"""You are a senior devops and security auditor.
 Analyze the following web application codebase structure and configuration files.
 
 1. **Security Audit**: Scan for:

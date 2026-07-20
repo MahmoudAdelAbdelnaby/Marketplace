@@ -1020,7 +1020,7 @@ export default function ToolPage() {
               ))}
               {tool.account && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--primary-text)', background: 'var(--secondary)', borderRadius: 999, padding: '4px 10px' }}>@ {tool.account}</span>}
               {tool.time_to_deploy && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 999, padding: '4px 10px' }}>⏱ {tool.time_to_deploy}</span>}
-              {fmtMoney(tool.roi) && <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--success)' }}>{fmtMoney(tool.roi)}/yr</span>}
+              {user?.permissions?.can_see_roi !== false && fmtMoney(tool.roi) && <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--success)' }}>{fmtMoney(tool.roi)}/yr</span>}
             </div>
 
             {tool.badges && tool.badges.length > 0 && (
