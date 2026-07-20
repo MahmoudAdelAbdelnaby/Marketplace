@@ -897,12 +897,14 @@ def auto_trigger_container_build_if_needed(tool: Tool, session: Session):
                         "demo_container_build_logs": "Analyzing ZIP codebase and running AI security audit...\n"
                     })
                     
+                    custom_prompt = get_system_prompt(s, "prompt_security_audit")
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     audit = loop.run_until_complete(analyze_and_audit_zip_codebase(
                         zip_path, api_key or "",
                         ai_enabled=cfg["ai_enabled"], provider=cfg["provider"],
                         local_url=cfg["local_url"], local_model=cfg["local_model"],
+                        custom_prompt=custom_prompt,
                     ))
                     loop.close()
                     
@@ -1299,12 +1301,15 @@ async def trigger_demo_build(tool_id: int, u: User = Depends(current_user), s: S
                     bs.add(bt); bs.commit()
         try:
             from analyzer import analyze_and_audit_zip_codebase
+            with Session(engine) as prompt_s:
+                custom_prompt = get_system_prompt(prompt_s, "prompt_security_audit")
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             audit = loop.run_until_complete(analyze_and_audit_zip_codebase(
                 zip_path, api_key or "",
                 ai_enabled=cfg["ai_enabled"], provider=cfg["provider"],
                 local_url=cfg["local_url"], local_model=cfg["local_model"],
+                custom_prompt=custom_prompt,
             ))
             loop.close()
 
@@ -1438,22 +1443,8 @@ async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends
                 
     data_str = "\n".join(input_lines) if (tools or ideas) else "No pending items."
     
-    prompt = f"""You are the Executive Innovation Assistant. Act as an assistant creating an executive summary for the board to review and approve.
-Read the following list of pending submissions (tools and ideas awaiting review) and produce a high-impact, professional, ready-to-paste weekly cadence channel Executive Digest.
-
-Guidelines:
-1. Start with a header like:
-   "🚀 **Weekly Innovation Board Digest - {dt.date.today().isoformat()}**"
-   followed by a brief 1-2 sentence overview of overall pending activity (e.g. "We currently have {len(tools)} tool(s) and {len(ideas)} idea(s) awaiting review. Below is the executive summary and recommended action for each.")
-2. Group the items into:
-   - **🎯 Tools Awaiting Approval**: Summarize each tool's core value, and give a clear board Recommendation (e.g. "Approve for Pilot", "Schedule Demo", "Return to Owner for Info").
-   - **💡 Community Ideas**: Summarize proposed ideas, noting community votes/demand, and suggest next steps.
-3. For each item, keep it concise (2-3 sentences max) but complete. Highlight estimated ROI or community impact.
-4. Keep the format clean, well-spaced, and actionable for board members.
-
-Pending Submissions List:
-{data_str}
-"""
+    sys_prompt = get_system_prompt(s, "prompt_executive_digest")
+    prompt = f"{sys_prompt}\n\nPending Submissions List:\n{data_str}"
 
     start_time = time.time()
     
@@ -2800,6 +2791,137 @@ def refresh_user_usage(user_id: int, u: User = Depends(require("admin")), s: Ses
     s.add(target_user)
     s.commit()
     return public_user(target_user)
+
+
+# ----------------------------------------------------------------- AI System Prompts Management
+DEFAULT_PROMPTS = {
+    "prompt_matchmaker": """You are the Analytics AI Hub Matchmaker. Your job is to match the user's business pain point or problem statement with the best existing solutions in our catalog.
+
+Instructions:
+1. Recommend the most relevant matching tools (up to 3).
+2. Spacing and readability: Do NOT write your response in a single continuous paragraph. Put each recommended tool on its own separate line/paragraph, separated by double newlines (\\n\\n) to create a clean, well-spaced, and easily scannable response.
+3. Link formatting (CRITICAL):
+   - NEVER mention "Tool ID: X" or place links on the ID number (e.g. do NOT output "[Tool ID: 3](/tools/3)").
+   - The hyperlink MUST be placed directly on the tool name itself in the format: [Tool Name](/tools/id). For example: [Process Mining Engine](/tools/3).
+   - Do NOT write the tool name twice. Write it ONLY once as the hyperlink.
+4. Local relative routes only: Always use local relative paths for local routing. For the Idea Pipeline, use exactly: [Idea Pipeline](/ideas). Never append external placeholder domains.
+5. Be professional, clear, encouraging, and concise.""",
+
+    "prompt_executive_digest": """You are the Executive Innovation Assistant. Act as an assistant creating an executive summary for the board to review and approve.
+Read the following list of pending submissions (tools and ideas awaiting review) and produce a high-impact, professional, ready-to-paste weekly cadence channel Executive Digest.
+
+Guidelines:
+1. Start with a header like:
+   "🚀 **Weekly Innovation Board Digest**"
+   followed by a brief 1-2 sentence overview of overall pending activity.
+2. Group the items into:
+   - **🎯 Tools Awaiting Approval**: Summarize each tool's core value, and give a clear board Recommendation (e.g. "Approve for Pilot", "Schedule Demo", "Return to Owner for Info").
+   - **💡 Community Ideas**: Summarize proposed ideas, noting community votes/demand, and suggest next steps.
+3. For each item, keep it concise (2-3 sentences max) but complete. Highlight estimated ROI or community impact.
+4. Keep the format clean, well-spaced, and actionable for board members.""",
+
+    "prompt_security_audit": """You are a senior devops and security auditor.
+Analyze the application codebase structure and configuration files.
+
+1. **Security Audit**: Scan for:
+   - Command injection vulnerabilities or shells (e.g. exec, subprocess.Popen without shell=False, eval).
+   - Infinite loops, CPU exhaustion patterns, or storage overload logic.
+   - Remote code execution (RCE) hooks, malicious file writes, or credential stealing.
+   - Flag the decision as "flag" if unsafe, otherwise "approve".
+2. **Framework & Tech Stack Detection**: Determine if it's React/Vite, Node.js, Python FastAPI/Flask, static HTML, etc.
+3. **Container Port**: Detect the listening port of the app (default to 80 for static, 8000 for Python, 3000/5000/8080 for Node).
+4. **Dockerfile Generation**: Generate a single-container multi-stage Dockerfile that builds and runs this application cleanly.
+
+Return your response EXACTLY as a JSON object, with no markdown formatting or triple backticks.""",
+
+    "prompt_scoping_evaluator": """You are an Enterprise Innovation & Scoping Strategist.
+Evaluate the provided Innovation Opportunity Canvas and problem statement.
+
+Instructions:
+1. Assess the clarity of the problem, targeted business impact, estimated ROI, and technical feasibility.
+2. Provide constructive feedback for improving the scoping.
+3. Assign a Completeness Score (0% to 100%) based on how ready this idea is for committee review.
+4. Suggest 2-3 immediate next steps for the owner to advance this idea into a prototype."""
+}
+
+PROMPT_METADATA = {
+    "prompt_matchmaker": {
+        "title": "AI Matchmaker & Copilot Assistant",
+        "description": "System prompt used by the AI Matchmaker chat and floating Copilot drawer to match user pain points with catalog tools.",
+        "category": "Chat & Guidance"
+    },
+    "prompt_executive_digest": {
+        "title": "AI Executive Board Digest",
+        "description": "System prompt used by the Review Center to generate weekly board digests of pending tools and ideas.",
+        "category": "Review & Reporting"
+    },
+    "prompt_security_audit": {
+        "title": "AI Code Security Auditor & Docker Builder",
+        "description": "System prompt used when scanning uploaded tool ZIP files for security vulnerabilities and generating Dockerfiles.",
+        "category": "Security & Build"
+    },
+    "prompt_scoping_evaluator": {
+        "title": "AI Canvas Scoping & Strategic Evaluator",
+        "description": "System prompt used when evaluating Innovation Opportunity Canvases and generating strategic board pitches.",
+        "category": "Idea Pipeline"
+    }
+}
+
+def get_system_prompt(s: Session, key: str) -> str:
+    setting = s.exec(select(Setting).where(Setting.key == key)).first()
+    if setting and setting.value and setting.value.strip():
+        return setting.value
+    return DEFAULT_PROMPTS.get(key, "")
+
+@app.get("/admin/prompts")
+def get_admin_prompts(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    result = {}
+    for key, default_val in DEFAULT_PROMPTS.items():
+        setting = s.exec(select(Setting).where(Setting.key == key)).first()
+        meta = PROMPT_METADATA.get(key, {})
+        val = setting.value if (setting and setting.value) else default_val
+        result[key] = {
+            "key": key,
+            "title": meta.get("title", key),
+            "description": meta.get("description", ""),
+            "category": meta.get("category", "General"),
+            "value": val,
+            "default_value": default_val,
+            "is_custom": bool(setting and setting.value and setting.value != default_val)
+        }
+    return result
+
+class PromptsUpdateIn(BaseModel):
+    prompts: dict
+
+@app.put("/admin/prompts")
+def update_admin_prompts(body: PromptsUpdateIn, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    for key, value in body.prompts.items():
+        if key in DEFAULT_PROMPTS:
+            setting = s.exec(select(Setting).where(Setting.key == key)).first()
+            if not setting:
+                setting = Setting(key=key, value=value)
+            else:
+                setting.value = value
+            s.add(setting)
+    s.commit()
+    return {"ok": True, "message": "AI System Prompts saved successfully."}
+
+@app.post("/admin/prompts/reset")
+def reset_admin_prompt(body: dict, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    key = body.get("key")
+    if key in DEFAULT_PROMPTS:
+        setting = s.exec(select(Setting).where(Setting.key == key)).first()
+        if setting:
+            s.delete(setting)
+            s.commit()
+    return {"ok": True, "message": f"Prompt '{key}' reset to default."}
+
+@app.get("/ai/system-prompt/{key}")
+def get_public_system_prompt(key: str, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    if key not in DEFAULT_PROMPTS:
+        raise HTTPException(404, "Prompt key not found")
+    return {"key": key, "prompt": get_system_prompt(s, key)}
 
 
 # ----------------------------------------------------------------- startup / migrate / seed

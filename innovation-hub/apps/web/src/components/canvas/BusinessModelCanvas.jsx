@@ -174,7 +174,13 @@ export default function BusinessModelCanvas() {
   const generateEvaluation = async () => {
     setEvalLoading(true);
     try {
-      const prompt = `You are a senior strategy consultant evaluating a new AI product proposal.
+      let sysInstruction = "";
+      try {
+        const sysRes = await api('/ai/system-prompt/prompt_scoping_evaluator');
+        sysInstruction = sysRes?.prompt || "";
+      } catch (e) {}
+
+      const prompt = `${sysInstruction || "You are a senior strategy consultant evaluating a new AI product proposal."}
 Here is the current scoping canvas:
 - Name: ${canvas.name || 'Untitled'}
 - Problem Statement: ${canvas.problemStatement || 'Not defined'}
