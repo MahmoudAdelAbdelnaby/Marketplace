@@ -55,6 +55,7 @@ export default function AdminCenter() {
   const [requiredReviewers, setRequiredReviewers] = useState(1);
   const [aiAudit, setAiAudit] = useState({ enabled: true, provider: 'gemini', localUrl: 'http://localhost:11434', localModel: 'llama3.2' });
   const [teams, setTeams] = useState({ webhookUrl: '', baseUrl: '', triggerKey: '' });
+  const [digestSched, setDigestSched] = useState({ day: '', time: '09:00' });
   const [teamsTestState, setTeamsTestState] = useState('');
   const [tools, setTools] = useState([]);
   const [ideas, setIdeas] = useState([]);
@@ -266,6 +267,10 @@ export default function AdminCenter() {
             baseUrl: data.app_base_url || '',
             triggerKey: data.digest_trigger_key || '',
           });
+          if (data && data.digest_schedule) {
+            const [d, t] = data.digest_schedule.split(' ');
+            setDigestSched({ day: d || '', time: t || '09:00' });
+          }
         })
         .catch(() => {});
     }
@@ -459,6 +464,16 @@ export default function AdminCenter() {
         digest_trigger_key: next.triggerKey,
       }});
       showTempSuccess('Teams notification settings saved.');
+    } catch (e) { setErr(e.message); }
+  };
+
+  const saveDigestSched = async (next) => {
+    setDigestSched(next);
+    try {
+      await api('/admin/settings', { method: 'POST', body: {
+        digest_schedule: next.day ? `${next.day} ${next.time}` : '',
+      }});
+      showTempSuccess(next.day ? 'Weekly digest scheduled.' : 'Weekly digest disabled.');
     } catch (e) { setErr(e.message); }
   };
 
@@ -1400,6 +1415,37 @@ export default function AdminCenter() {
               >
                 {teamsTestState === 'sent' ? '✓ Sent!' : teamsTestState === 'sending' ? 'Sending…' : 'Send Test'}
               </button>
+            </div>
+
+            {/* Weekly auto-digest schedule */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16, paddingTop: 16, borderTop: '1px dashed var(--border-color)', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>Weekly Auto-Digest</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Automatically post the pending-review digest to the channel on a schedule (server time).</div>
+              </div>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select
+                  value={digestSched.day}
+                  onChange={(e) => saveDigestSched({ ...digestSched, day: e.target.value })}
+                  style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, width: 'auto' }}
+                >
+                  <option value="">Off</option>
+                  <option value="mon">Monday</option>
+                  <option value="tue">Tuesday</option>
+                  <option value="wed">Wednesday</option>
+                  <option value="thu">Thursday</option>
+                  <option value="fri">Friday</option>
+                  <option value="sat">Saturday</option>
+                  <option value="sun">Sunday</option>
+                </select>
+                <input
+                  type="time"
+                  value={digestSched.time}
+                  onChange={(e) => saveDigestSched({ ...digestSched, time: e.target.value })}
+                  disabled={!digestSched.day}
+                  style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 13, width: 'auto', opacity: digestSched.day ? 1 : 0.5 }}
+                />
+              </div>
             </div>
           </div>
 

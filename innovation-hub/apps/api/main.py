@@ -1481,6 +1481,42 @@ def review_digest(u: User = Depends(current_user), s: Session = Depends(get_sess
     return build_digest_markdown(s)
 
 
+def _send_digest_to_teams(s: Session, title_prefix: str = "📋") -> bool:
+    d = build_digest_markdown(s)
+    paras = [p.strip() for p in d["markdown"].split("\n\n") if p.strip()]
+    title = paras.pop(0).lstrip("# ").strip() if paras else "Pending Review Digest"
+    return notify_teams(s, f"{title_prefix} {title}", paras[:40], "/review")
+
+
+def _digest_scheduler():
+    """Posts the weekly digest to Teams on the schedule in the digest_schedule
+    setting (e.g. 'mon 09:00', server time). Empty setting = off."""
+    days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    while True:
+        time.sleep(60)
+        try:
+            with Session(engine) as s:
+                row = s.get(Setting, "digest_schedule")
+                sched = (row.value if row else "").strip().lower()
+                if not sched or " " not in sched:
+                    continue
+                day_s, time_s = sched.split(None, 1)
+                now = dt.datetime.now()
+                if days[now.weekday()] != day_s or now.strftime("%H:%M") < time_s:
+                    continue
+                sent = s.get(Setting, "digest_last_sent")
+                today = now.date().isoformat()
+                if sent and sent.value == today:
+                    continue
+                if _send_digest_to_teams(s, "🗓️"):
+                    if not sent:
+                        sent = Setting(key="digest_last_sent", value="")
+                    sent.value = today
+                    s.add(sent); s.commit()
+        except Exception as e:
+            print(f"Digest scheduler error: {e}")
+
+
 @app.api_route("/review/digest/trigger", methods=["GET", "POST"])
 def trigger_digest_to_teams(key: str = "", s: Session = Depends(get_session)):
     """Machine-callable (Power Automate): generate the pending-review digest and
@@ -1491,13 +1527,9 @@ def trigger_digest_to_teams(key: str = "", s: Session = Depends(get_session)):
         raise HTTPException(400, "No digest trigger key configured in Admin settings.")
     if not key or key != expected:
         raise HTTPException(403, "Invalid trigger key")
-    d = build_digest_markdown(s)
-    paras = [p.strip() for p in d["markdown"].split("\n\n") if p.strip()]
-    title = paras.pop(0).lstrip("# ").strip() if paras else "Pending Review Digest"
-    ok = notify_teams(s, f"📋 {title}", paras[:40], "/review")
-    if not ok:
+    if not _send_digest_to_teams(s):
         raise HTTPException(400, "No Teams webhook URL configured.")
-    return {"ok": True, "tool_count": d["tool_count"], "idea_count": d["idea_count"]}
+    return {"ok": True}
 
 
 @app.post("/review/ai-digest")
@@ -3145,6 +3177,7 @@ def on_start():
     seed()
     from container_manager import start_idle_watcher
     start_idle_watcher(DB_URL)
+    threading.Thread(target=_digest_scheduler, daemon=True).start()
 
 
 ACTIVE_PROXY_TARGET = None
