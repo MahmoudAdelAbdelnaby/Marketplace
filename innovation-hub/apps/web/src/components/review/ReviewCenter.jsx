@@ -99,6 +99,8 @@ function ReviewCard({ item, type, onDone, me, archived = false, allIdeas = [], o
   const [live, setLive] = useState(null); // polled container status while building
   const [comment, setComment] = useState('');
   const [comments, setComments] = useState(item.review_comments || []);
+  const [localReviewCard, setLocalReviewCard] = useState(item.ai_review_card);
+  const [reviewingAi, setReviewingAi] = useState(false);
 
   const postComment = async () => {
     if (!comment.trim()) return;
@@ -183,148 +185,298 @@ function ReviewCard({ item, type, onDone, me, archived = false, allIdeas = [], o
         </div>
       </div>
 
-      {/* Main summary view */}
-      <div style={{ marginTop: 12, marginBottom: 12 }}>
-        {!isIdea && item.idea_id && allIdeas.find(i => i.id === item.idea_id) ? (() => {
-          const idea = allIdeas.find(i => i.id === item.idea_id);
-          return (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div style={{ background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14 }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--primary)', marginBottom: 6 }}>ORIGINAL IDEA</div>
-                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{idea.name}</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{idea.canvas?.problemStatement || idea.problem || '—'}</div>
-              </div>
-              <div style={{ background: 'var(--bg-main)', border: '1px dashed var(--primary)', borderRadius: 10, padding: 14 }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--primary)', marginBottom: 6 }}>TOOL SUBMISSION</div>
-                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{item.name}</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{item.problem || '—'}</div>
-                <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-muted)' }}>Delivers: {item.delivers || '—'}</div>
-              </div>
-            </div>
-          );
-        })() : (
-          <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '4px 0 8px', whiteSpace: 'pre-wrap' }}>
-            {item.problem || canvas?.problemStatement || 'No description provided.'}
-          </p>
-        )}
-      </div>
-
-      {/* Collapsible Scoping details */}
-      <div style={{ marginBottom: 12 }}>
-        <button 
-          type="button"
-          onClick={() => setShowDetails(!showDetails)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, cursor: 'pointer', color: 'var(--primary-text)', fontWeight: 600 }}
-        >
-          {showDetails ? <><ChevronUp size={14} /> Hide Scoping Details</> : <><ChevronDown size={14} /> Show Full Scoping Details</>}
-        </button>
-
-        {showDetails && (
-          <div style={{ marginTop: 14, padding: 16, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {isIdea ? (
-              // Structured Scoping Canvas Details
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontSize: 13 }}>
-                <div>
-                  <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 12.5, textTransform: 'uppercase', marginBottom: 4 }}>1. Concept & Problem</div>
-                  <div style={{ display: 'grid', gap: 10, paddingLeft: 8 }}>
-                    <div><strong>Problem Statement: </strong>{canvas.problemStatement || '—'}</div>
-                    <div><strong>Current Process: </strong>{canvas.currentProcess || '—'}</div>
-                    <div><strong>Pain Points: </strong>{canvas.painPoints || '—'}</div>
-                    <div><strong>Frequency: </strong>{canvas.frequency || '—'}</div>
-                    <div><strong>Implications of Inaction: </strong>{canvas.implicationsOfInaction || '—'}</div>
-                    <div><strong>Target Users: </strong>{canvas.primaryUsers?.join(', ') || '—'}</div>
-                    <div><strong>Value Proposition Aud/Outcome/Method: </strong>{canvas.vpAudience ? `Helps ${canvas.vpAudience} achieve ${canvas.vpOutcome} by ${canvas.vpMethod}` : '—'}</div>
-                    <div><strong>Solution Type: </strong>{canvas.solutionTypes?.join(', ') || '—'}</div>
+      {/* Side-by-Side Section: Left = Submission Summary & Scoping Toggle, Right = AI Evaluation */}
+      <div style={{ display: 'grid', gridTemplateColumns: localReviewCard?.priority ? '1.1fr 1fr' : '1fr', gap: 20, alignItems: 'stretch', marginTop: 12, marginBottom: 16 }}>
+        
+        {/* LEFT COLUMN: Submission Description & Scoping Toggle */}
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            {!isIdea && item.idea_id && allIdeas.find(i => i.id === item.idea_id) ? (() => {
+              const idea = allIdeas.find(i => i.id === item.idea_id);
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div style={{ background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--primary)', marginBottom: 4 }}>ORIGINAL IDEA</div>
+                    <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 4 }}>{idea.name}</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>{idea.canvas?.problemStatement || idea.problem || '—'}</div>
+                  </div>
+                  <div style={{ background: 'var(--bg-main)', border: '1px dashed var(--primary)', borderRadius: 10, padding: 12 }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--primary)', marginBottom: 4 }}>TOOL SUBMISSION</div>
+                    <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 4 }}>{item.name}</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>{item.problem || '—'}</div>
+                    <div style={{ marginTop: 4, fontSize: 11.5, color: 'var(--text-muted)' }}>Delivers: {item.delivers || '—'}</div>
                   </div>
                 </div>
-
-                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
-                  <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 12.5, textTransform: 'uppercase', marginBottom: 4 }}>2. Solution Strategy</div>
-                  <div style={{ display: 'grid', gap: 10, paddingLeft: 8 }}>
-                    <div>
-                      <strong>Strategic Alignment: </strong>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', marginTop: 4 }}>
-                        {Object.entries(canvas.strategicAlignment || {}).map(([k, v]) => (
-                          <span key={k} style={{ fontSize: 11, background: 'var(--bg-card)', padding: '2px 8px', borderRadius: 4 }}>
-                            {k.replace(/([A-Z])/g, ' $1')}: {v === 2 ? 'Definite' : v === 1 ? 'Potential' : 'None'}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div><strong>Scalability Scope: </strong>{`Industries: ${canvas.industries?.join(', ') || '—'} | Functions: ${canvas.functions?.join(', ') || '—'} | Regions: ${canvas.regions?.join(', ') || '—'}`}</div>
-                    <div><strong>Differentiation (Alternatives/Competitors/Unique): </strong>{`Alts: ${canvas.currentAlternatives || '—'} | Competitors: ${canvas.existingCompetitors || '—'} | Unique: ${canvas.whatMakesUnique || '—'}`}</div>
-                  </div>
+              );
+            })() : (
+              <div style={{ background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, height: '100%' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                  Submitted Problem & Description
                 </div>
-
-                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
-                  <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 12.5, textTransform: 'uppercase', marginBottom: 4 }}>3. Execution, Feasibility & Adoption</div>
-                  <div style={{ display: 'grid', gap: 10, paddingLeft: 8 }}>
-                    <div><strong>Business Impact: </strong>{`Est. Users: ${canvas.businessImpact?.estimatedUsers || '0'} | Hrs Saved: ${canvas.businessImpact?.hoursSavedPerUser || '0'}/wk | Savings: ${canvas.businessImpact?.costSavings || '—'} | Revenue: ${canvas.businessImpact?.revenuePotential || '—'}`}</div>
-                    {canvas.projectedROI && <div><strong>Projected ROI: </strong>{canvas.projectedROI}</div>}
-                    {canvas.deploymentTimeDays && <div><strong>Time to Deploy: </strong>{canvas.deploymentTimeDays} days</div>}
-                    {canvas.pricing && (
-                      <div><strong>Pricing: </strong>{`Price/User: $${canvas.pricing.pricePerUser || '0'} | Deployment Fee: $${canvas.pricing.deploymentFees || '0'} | Amount: $${canvas.pricing.amount || '0'}`}</div>
-                    )}
-                    <div>
-                      <strong>Feasibility Scores: </strong>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', marginTop: 4 }}>
-                        {Object.entries(canvas.feasibility || {}).map(([k, v]) => (
-                          <span key={k} style={{ fontSize: 11, background: 'var(--bg-card)', padding: '2px 8px', borderRadius: 4 }}>
-                            {k}: {v === 1 ? 'Low' : v === 2 ? 'Medium-Low' : v === 3 ? 'Medium' : v === 4 ? 'Medium-High' : 'High'}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div><strong>Anticipated Roadblockers/Technology Dependencies: </strong>{canvas.anticipatedRoadblockers || '-'}</div>
-                    <div>
-                      <strong>Adoption Potential: </strong>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', marginTop: 4 }}>
-                        {Object.entries(canvas.adoption || {}).map(([k, v]) => (
-                          <span key={k} style={{ fontSize: 11, background: 'var(--bg-card)', padding: '2px 8px', borderRadius: 4 }}>
-                            {k}: {v === 1 ? 'Low' : v === 2 ? 'Medium-Low' : v === 3 ? 'Medium' : v === 4 ? 'Medium-High' : 'High'}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div><strong>Build vs Buy (Decision/Justification): </strong>{`Decision: ${canvas.decision || '—'} | Justification: ${canvas.decisionJustification || '—'}`}</div>
-                  </div>
-                </div>
-
-                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
-                  <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 12.5, textTransform: 'uppercase', marginBottom: 4 }}>4. Risks & Success Metrics</div>
-                  <div style={{ display: 'grid', gap: 10, paddingLeft: 8 }}>
-                    <div><strong>Technical Risks: </strong>{canvas.risks?.technical?.join(', ') || 'None'}</div>
-                    <div><strong>Operational Risks: </strong>{canvas.risks?.operational?.join(', ') || 'None'}</div>
-                    <div><strong>KPIs & Targets: </strong>{`KPIs: ${canvas.successMetrics?.kpis || '—'} | Targets: ${canvas.successMetrics?.revenueTargets || '—'}`}</div>
-                  </div>
-                </div>
-
-                {canvas.aiEvaluation && (
-                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
-                    <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 12.5, textTransform: 'uppercase', marginBottom: 4 }}>5. AI Evaluation & Pitch</div>
-                    <div style={{ paddingLeft: 8, whiteSpace: 'pre-wrap', fontStyle: 'italic', lineHeight: 1.5, background: 'var(--bg-card)', padding: 12, borderRadius: 8 }}>
-                      {canvas.aiEvaluation}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              // Tool (Product) Fields
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, fontSize: 13 }}>
-                <div><strong>Category: </strong>{item.category}</div>
-                <div><strong>Status/Maturity: </strong>{item.status}</div>
-                <div><strong>Implementation: </strong>{item.implementation_status}</div>
-                <div><strong>Deployed Client: </strong>{item.account || '—'}</div>
-                <div><strong>ROI ($/yr): </strong>{item.roi ? `$${item.roi.toLocaleString()}` : '—'}</div>
-                <div><strong>Impact Tagline: </strong>{item.impact || '—'}</div>
-                {item.achieved_through && <div style={{ gridColumn: '1 / -1' }}><strong>Achieved Through: </strong>{item.achieved_through}</div>}
-                <div style={{ gridColumn: '1 / -1' }}><strong>Capabilities: </strong>{item.capabilities?.join(', ') || '—'}</div>
-                <div style={{ gridColumn: '1 / -1' }}><strong>What it delivers: </strong>{item.delivers || '—'}</div>
-                <div style={{ gridColumn: '1 / -1' }}><strong>Benefits: </strong>{item.benefits || '—'}</div>
+                <p style={{ color: 'var(--text-primary)', fontSize: 13, margin: 0, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                  {item.problem || canvas?.problemStatement || 'No description provided.'}
+                </p>
               </div>
             )}
           </div>
+
+          <div>
+            <button 
+              type="button"
+              onClick={() => setShowDetails(!showDetails)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, cursor: 'pointer', color: 'var(--primary-text)', fontWeight: 600 }}
+            >
+              {showDetails ? <><ChevronUp size={14} /> Hide Scoping Details</> : <><ChevronDown size={14} /> Show Full Scoping Details</>}
+            </button>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: AI Evaluation Box with Distinct Violet/Indigo Tint */}
+        {localReviewCard?.priority ? (
+          <div style={{
+            padding: '14px 16px',
+            borderRadius: 12,
+            background: 'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.06) 100%)',
+            border: '1px solid rgba(139,92,246,0.3)',
+            boxShadow: '0 4px 14px rgba(99,102,241,0.07)',
+            display: 'flex',
+            flexDirection: 'column',
+            justify: 'space-between',
+            gap: 10
+          }}>
+            {/* Header banner */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Sparkles size={16} color="#8b5cf6" />
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--primary-text)', letterSpacing: '0.01em' }}>
+                  AI Innovation Review
+                </span>
+                <span style={{ fontSize: 9.5, fontWeight: 700, background: 'rgba(139,92,246,0.2)', color: '#8b5cf6', padding: '2px 6px', borderRadius: 8, textTransform: 'uppercase' }}>
+                  STAGE 1
+                </span>
+              </div>
+
+              <button
+                type="button"
+                disabled={reviewingAi}
+                onClick={async () => {
+                  setReviewingAi(true);
+                  try {
+                    const res = await api(`/review/${type}/${item.id}/ai-review`, { method: 'POST' });
+                    setLocalReviewCard(res.ai_review_card);
+                  } catch (e) {
+                    alert('AI Review failed: ' + e.message);
+                  } finally {
+                    setReviewingAi(false);
+                  }
+                }}
+                style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(139,92,246,0.35)', background: 'var(--bg-card)', color: '#8b5cf6', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                title="Re-run Stage 1 AI evaluation"
+              >
+                <Sparkles size={11} color="#8b5cf6" />
+                {reviewingAi ? 'Evaluating...' : 'Re-evaluate'}
+              </button>
+            </div>
+
+            {/* Badges Strip */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+              <span style={{
+                fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 6,
+                ...(localReviewCard.priority === 'High' ? { background: 'rgba(34,197,94,0.18)', color: '#15803d', border: '1px solid rgba(34,197,94,0.35)' } :
+                    localReviewCard.priority === 'Medium' ? { background: 'rgba(234,179,8,0.18)', color: '#a16207', border: '1px solid rgba(234,179,8,0.35)' } :
+                    { background: 'rgba(148,163,184,0.18)', color: '#64748b', border: '1px solid rgba(148,163,184,0.35)' })
+              }}>
+                {localReviewCard.priority} Priority
+              </span>
+
+              <span style={{ fontSize: 11, fontWeight: 700, background: 'var(--bg-card)', border: '1px solid rgba(139,92,246,0.3)', padding: '3px 8px', borderRadius: 6, color: 'var(--text-primary)' }}>
+                Rec: {localReviewCard.recommendation}
+              </span>
+
+              {localReviewCard.strategic_lens && localReviewCard.strategic_lens !== '—' && (
+                <span style={{ fontSize: 11, background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '3px 8px', borderRadius: 6, color: 'var(--text-secondary)', fontWeight: 500 }}>
+                  {localReviewCard.strategic_lens}
+                </span>
+              )}
+            </div>
+
+            {/* Quantifiable Impact */}
+            {localReviewCard.quantifiable_impact && localReviewCard.quantifiable_impact !== '—' && (
+              <div style={{
+                fontSize: 11.5, fontWeight: 600, color: '#6366f1',
+                background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)',
+                padding: '6px 10px', borderRadius: 6
+              }}>
+                📊 Impact: <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{localReviewCard.quantifiable_impact}</span>
+              </div>
+            )}
+
+            {/* Executive Board Summary */}
+            {localReviewCard.key_takeaway && localReviewCard.key_takeaway !== '—' && (
+              <div style={{
+                fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5,
+                background: 'var(--bg-card)', padding: '8px 10px', borderRadius: 6,
+                borderLeft: '3px solid #8b5cf6'
+              }}>
+                <strong>Takeaway: </strong>{localReviewCard.key_takeaway}
+              </div>
+            )}
+
+            {/* Differentiator & Roadblock */}
+            {((localReviewCard.differentiator && localReviewCard.differentiator !== '—') || (localReviewCard.primary_roadblock && localReviewCard.primary_roadblock !== '—' && localReviewCard.primary_roadblock !== 'None identified')) && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 11.5 }}>
+                {localReviewCard.differentiator && localReviewCard.differentiator !== '—' && (
+                  <div style={{ background: 'var(--bg-card)', padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-color)' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--success)' }}>💡 Edge: </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{localReviewCard.differentiator}</span>
+                  </div>
+                )}
+                {localReviewCard.primary_roadblock && localReviewCard.primary_roadblock !== '—' && localReviewCard.primary_roadblock !== 'None identified' && (
+                  <div style={{ background: 'var(--bg-card)', padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-color)' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--warning)' }}>⚠️ Roadblock: </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{localReviewCard.primary_roadblock}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ background: 'rgba(139,92,246,0.04)', border: '1px dashed rgba(139,92,246,0.3)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No Stage 1 evaluation generated yet.</span>
+            <button
+              type="button"
+              disabled={reviewingAi}
+              onClick={async () => {
+                setReviewingAi(true);
+                try {
+                  const res = await api(`/review/${type}/${item.id}/ai-review`, { method: 'POST' });
+                  setLocalReviewCard(res.ai_review_card);
+                } catch (e) {
+                  alert('AI Review failed: ' + e.message);
+                } finally {
+                  setReviewingAi(false);
+                }
+              }}
+              style={{
+                padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(139,92,246,0.4)',
+                background: 'rgba(139,92,246,0.1)', color: '#8b5cf6', fontWeight: 600,
+                fontSize: 12.5, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+                opacity: reviewingAi ? 0.6 : 1, transition: 'all 0.15s ease'
+              }}
+            >
+              <Sparkles size={14} color="#8b5cf6" />
+              {reviewingAi ? 'Evaluating...' : 'Run Stage 1 AI Evaluation'}
+            </button>
+          </div>
         )}
+      </div>
+
+      {showDetails && (
+        <div style={{ marginTop: 14, padding: 16, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {isIdea ? (
+            // Structured Scoping Canvas Details
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontSize: 13 }}>
+              <div>
+                <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 12.5, textTransform: 'uppercase', marginBottom: 4 }}>1. Concept & Problem</div>
+                <div style={{ display: 'grid', gap: 10, paddingLeft: 8 }}>
+                  <div><strong>Problem Statement: </strong>{canvas.problemStatement || '—'}</div>
+                  <div><strong>Current Process: </strong>{canvas.currentProcess || '—'}</div>
+                  <div><strong>Pain Points: </strong>{canvas.painPoints || '—'}</div>
+                  <div><strong>Frequency: </strong>{canvas.frequency || '—'}</div>
+                  <div><strong>Implications of Inaction: </strong>{canvas.implicationsOfInaction || '—'}</div>
+                  <div><strong>Target Users: </strong>{canvas.primaryUsers?.join(', ') || '—'}</div>
+                  <div><strong>Value Proposition Aud/Outcome/Method: </strong>{canvas.vpAudience ? `Helps ${canvas.vpAudience} achieve ${canvas.vpOutcome} by ${canvas.vpMethod}` : '—'}</div>
+                  <div><strong>Solution Type: </strong>{canvas.solutionTypes?.join(', ') || '—'}</div>
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
+                <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 12.5, textTransform: 'uppercase', marginBottom: 4 }}>2. Solution Strategy</div>
+                <div style={{ display: 'grid', gap: 10, paddingLeft: 8 }}>
+                  <div>
+                    <strong>Strategic Alignment: </strong>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', marginTop: 4 }}>
+                      {Object.entries(canvas.strategicAlignment || {}).map(([k, v]) => (
+                        <span key={k} style={{ fontSize: 11, background: 'var(--bg-card)', padding: '2px 8px', borderRadius: 4 }}>
+                          {k.replace(/([A-Z])/g, ' $1')}: {v === 2 ? 'Definite' : v === 1 ? 'Potential' : 'None'}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div><strong>Scalability Scope: </strong>{`Industries: ${canvas.industries?.join(', ') || '—'} | Functions: ${canvas.functions?.join(', ') || '—'} | Regions: ${canvas.regions?.join(', ') || '—'}`}</div>
+                  <div><strong>Differentiation (Alternatives/Competitors/Unique): </strong>{`Alts: ${canvas.currentAlternatives || '—'} | Competitors: ${canvas.existingCompetitors || '—'} | Unique: ${canvas.whatMakesUnique || '—'}`}</div>
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
+                <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 12.5, textTransform: 'uppercase', marginBottom: 4 }}>3. Execution, Feasibility & Adoption</div>
+                <div style={{ display: 'grid', gap: 10, paddingLeft: 8 }}>
+                  <div><strong>Business Impact: </strong>{`Est. Users: ${canvas.businessImpact?.estimatedUsers || '0'} | Hrs Saved: ${canvas.businessImpact?.hoursSavedPerUser || '0'}/wk | Savings: ${canvas.businessImpact?.costSavings || '—'} | Revenue: ${canvas.businessImpact?.revenuePotential || '—'}`}</div>
+                  {canvas.projectedROI && <div><strong>Projected ROI: </strong>{canvas.projectedROI}</div>}
+                  {canvas.deploymentTimeDays && <div><strong>Time to Deploy: </strong>{canvas.deploymentTimeDays} days</div>}
+                  {canvas.pricing && (
+                    <div><strong>Pricing: </strong>{`Price/User: $${canvas.pricing.pricePerUser || '0'} | Deployment Fee: $${canvas.pricing.deploymentFees || '0'} | Amount: $${canvas.pricing.amount || '0'}`}</div>
+                  )}
+                  <div>
+                    <strong>Feasibility Scores: </strong>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', marginTop: 4 }}>
+                      {Object.entries(canvas.feasibility || {}).map(([k, v]) => (
+                        <span key={k} style={{ fontSize: 11, background: 'var(--bg-card)', padding: '2px 8px', borderRadius: 4 }}>
+                          {k}: {v === 1 ? 'Low' : v === 2 ? 'Medium-Low' : v === 3 ? 'Medium' : v === 4 ? 'Medium-High' : 'High'}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div><strong>Anticipated Roadblockers/Technology Dependencies: </strong>{canvas.anticipatedRoadblockers || '-'}</div>
+                  <div>
+                    <strong>Adoption Potential: </strong>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', marginTop: 4 }}>
+                      {Object.entries(canvas.adoption || {}).map(([k, v]) => (
+                        <span key={k} style={{ fontSize: 11, background: 'var(--bg-card)', padding: '2px 8px', borderRadius: 4 }}>
+                          {k}: {v === 1 ? 'Low' : v === 2 ? 'Medium-Low' : v === 3 ? 'Medium' : v === 4 ? 'Medium-High' : 'High'}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div><strong>Build vs Buy (Decision/Justification): </strong>{`Decision: ${canvas.decision || '—'} | Justification: ${canvas.decisionJustification || '—'}`}</div>
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
+                <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 12.5, textTransform: 'uppercase', marginBottom: 4 }}>4. Risks & Success Metrics</div>
+                <div style={{ display: 'grid', gap: 10, paddingLeft: 8 }}>
+                  <div><strong>Technical Risks: </strong>{canvas.risks?.technical?.join(', ') || 'None'}</div>
+                  <div><strong>Operational Risks: </strong>{canvas.risks?.operational?.join(', ') || 'None'}</div>
+                  <div><strong>KPIs & Targets: </strong>{`KPIs: ${canvas.successMetrics?.kpis || '—'} | Targets: ${canvas.successMetrics?.revenueTargets || '—'}`}</div>
+                </div>
+              </div>
+
+              {canvas.aiEvaluation && (
+                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
+                  <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 12.5, textTransform: 'uppercase', marginBottom: 4 }}>5. AI Evaluation & Pitch</div>
+                  <div style={{ paddingLeft: 8, whiteSpace: 'pre-wrap', fontStyle: 'italic', lineHeight: 1.5, background: 'var(--bg-card)', padding: 12, borderRadius: 8 }}>
+                    {canvas.aiEvaluation}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            // Tool (Product) Fields
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, fontSize: 13 }}>
+              <div><strong>Category: </strong>{item.category}</div>
+              <div><strong>Status/Maturity: </strong>{item.status}</div>
+              <div><strong>Implementation: </strong>{item.implementation_status}</div>
+              <div><strong>Deployed Client: </strong>{item.account || '—'}</div>
+              <div><strong>ROI ($/yr): </strong>{item.roi ? `$${item.roi.toLocaleString()}` : '—'}</div>
+              <div><strong>Impact Tagline: </strong>{item.impact || '—'}</div>
+              {item.achieved_through && <div style={{ gridColumn: '1 / -1' }}><strong>Achieved Through: </strong>{item.achieved_through}</div>}
+              <div style={{ gridColumn: '1 / -1' }}><strong>Capabilities: </strong>{item.capabilities?.join(', ') || '—'}</div>
+              <div style={{ gridColumn: '1 / -1' }}><strong>What it delivers: </strong>{item.delivers || '—'}</div>
+              <div style={{ gridColumn: '1 / -1' }}><strong>Benefits: </strong>{item.benefits || '—'}</div>
+            </div>
+          )}
+        </div>
+      )}
         
         {item.demo_type === 'container' && (
           <div style={{ marginTop: 14, padding: 16, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
@@ -465,7 +617,6 @@ function ReviewCard({ item, type, onDone, me, archived = false, allIdeas = [], o
             )}
           </div>
         )}
-      </div>
 
       {archived ? (
         <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

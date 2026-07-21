@@ -125,6 +125,7 @@ class Tool(SQLModel, table=True):
     demo_container_build_logs: str = Field(default="", sa_column=Column(TEXT))
     demo_security_report: str = Field(default="", sa_column=Column(TEXT))
     review_comments: List[dict] = Field(default=[], sa_column=Column(JSON))
+    ai_review_card: dict = Field(default={}, sa_column=Column(JSON))
     created_at: float = Field(default_factory=lambda: time.time())
 
 
@@ -228,6 +229,7 @@ class Idea(SQLModel, table=True):
     voters: List[int] = Field(default=[], sa_column=Column(JSON))
     notes: List[dict] = Field(default=[], sa_column=Column(JSON))
     review_comments: List[dict] = Field(default=[], sa_column=Column(JSON))
+    ai_review_card: dict = Field(default={}, sa_column=Column(JSON))
     voc_id: Optional[int] = None
     team: str = ""
     tool_id: Optional[int] = None
@@ -966,6 +968,7 @@ def create_tool(body: dict, u: User = Depends(current_user), s: Session = Depend
 
     s.add(t); s.commit(); s.refresh(t)
     auto_trigger_container_build_if_needed(t, s)
+    _trigger_ai_review(t.id, "tool")
     notify_teams(s, f"🛠️ New tool submitted: {t.name}",
                  [f"**Owner:** {t.owner or u.name}",
                   f"**Category:** {t.category or 'Uncategorized'}",
@@ -1038,6 +1041,7 @@ def update_tool(tool_id: int, body: dict, u: User = Depends(current_user), s: Se
     if is_owner_or_co_owner(t, u) and t.review_status in ("changes", "declined"):
         t.review_status = "pending"
         changed.append("review_status")
+        _trigger_ai_review(t.id, "tool")  # re-evaluate on resubmission
         
     if changed or body.get("edit_note"):
         history = list(t.edit_history or [])
@@ -1532,121 +1536,152 @@ def trigger_digest_to_teams(key: str = "", s: Session = Depends(get_session)):
     return {"ok": True}
 
 
+def _build_portfolio_table(tools: list, ideas: list) -> dict:
+    """Stage 2: Build deterministic portfolio summary from pre-computed ai_review_cards.
+    Pure Python — no AI calls. Returns exact stats and markdown table."""
+    rows = []
+    total_roi = 0
+    priority_counts = {"High": 0, "Medium": 0, "Low": 0}
+    type_counts = {"Tool": 0, "Idea": 0}
+    top_items = []  # items for spotlight deep-dives
+
+    for t in tools:
+        card = t.ai_review_card or {}
+        priority = card.get("priority", "Medium")
+        recommendation = card.get("recommendation", "—")
+        impact = card.get("quantifiable_impact", f"${t.roi:,.0f}/yr" if t.roi else "—")
+        lens = card.get("strategic_lens", t.category or "—")
+        rows.append({
+            "name": t.name, "type": "Tool", "priority": priority,
+            "recommendation": recommendation, "impact": impact,
+            "lens": lens, "item": t, "item_type": "tool"
+        })
+        if t.roi:
+            total_roi += t.roi
+        priority_counts[priority] = priority_counts.get(priority, 0) + 1
+        type_counts["Tool"] += 1
+
+    for i in ideas:
+        card = i.ai_review_card or {}
+        priority = card.get("priority", "Medium")
+        recommendation = card.get("recommendation", "—")
+        impact = card.get("quantifiable_impact", "—")
+        lens = card.get("strategic_lens", "—")
+        rows.append({
+            "name": i.name, "type": "Idea", "priority": priority,
+            "recommendation": recommendation, "impact": impact,
+            "lens": lens, "item": i, "item_type": "idea"
+        })
+        priority_counts[priority] = priority_counts.get(priority, 0) + 1
+        type_counts["Idea"] += 1
+
+    # Sort: High first, then Medium, then Low
+    priority_order = {"High": 0, "Medium": 1, "Low": 2}
+    rows.sort(key=lambda r: priority_order.get(r["priority"], 1))
+
+    # Build markdown table
+    table_lines = [
+        "| # | Title | Type | Priority | Recommendation | Impact | Strategic Lens |",
+        "|---|-------|------|----------|----------------|--------|----------------|"
+    ]
+    for idx, row in enumerate(rows, 1):
+        table_lines.append(
+            f"| {idx} | {row['name']} | {row['type']} | {row['priority']} | "
+            f"{row['recommendation']} | {row['impact']} | {row['lens']} |"
+        )
+
+    # Identify top 5 high-priority items for spotlight
+    high_items = [r for r in rows if r["priority"] == "High"]
+    top_items = high_items[:5]
+    if len(top_items) < 5:
+        medium_items = [r for r in rows if r["priority"] == "Medium"]
+        top_items.extend(medium_items[:5 - len(top_items)])
+
+    stats = {
+        "total_items": len(rows),
+        "tool_count": type_counts["Tool"],
+        "idea_count": type_counts["Idea"],
+        "high_priority": priority_counts.get("High", 0),
+        "medium_priority": priority_counts.get("Medium", 0),
+        "low_priority": priority_counts.get("Low", 0),
+        "total_projected_roi": f"${total_roi:,.0f}" if total_roi else "$0"
+    }
+
+    return {
+        "table_md": "\n".join(table_lines),
+        "stats": stats,
+        "top_items": top_items,
+        "all_rows": rows
+    }
+
+
 @app.post("/review/ai-digest")
 async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends(get_session)):
-    """Generates an AI executive digest of all pending tools and ideas using Gemini/OpenAI."""
+    """3-Stage AI Executive Digest Pipeline:
+    Stage 1: Read pre-computed ai_review_cards (with lazy backfill for items missing cards)
+    Stage 2: Build deterministic portfolio table and exact stats (Python, no AI)
+    Stage 3: Send compact portfolio + full raw spotlights to AI for board narrative
+    """
     if u.role not in REVIEWER_ROLES:
         raise HTTPException(403, "Reviewers only")
-        
+
     tools = s.exec(select(Tool).where(Tool.review_status.in_(["pending", "changes"])).order_by(Tool.created_at)).all()
     ideas = s.exec(select(Idea).where(Idea.status.in_(["proposed", "changes"])).order_by(Idea.created_at)).all()
-    
-    input_lines = []
-    if tools:
-        input_lines.append("Tools Awaiting Review:")
-        for t in tools:
-            roi_str = f"${t.roi:,.0f}/yr" if t.roi else "no ROI claimed"
-            input_lines.append(f"- Name: {t.name} | Category: {t.category} | Owner: {t.owner} | ROI: {roi_str}")
-            input_lines.append(f"  Problem: {t.problem}")
-            if t.capabilities:
-                input_lines.append(f"  Capabilities: {t.capabilities}")
-            input_lines.append(f"  Review Status: {t.review_status}")
-    if ideas:
-        input_lines.append("Proposed Ideas:")
-        for i in ideas:
-            input_lines.append(f"- Title: {i.name} | Owner: {i.owner} | Votes: {i.votes}")
-            canvas = i.canvas or {}
-            if canvas:
-                def camel_to_title(s):
-                    return "".join([" " + char if char.isupper() else char for char in s]).strip().title()
 
-                # 1. Concept & Problem
-                input_lines.append("  1. Concept & Problem:")
-                if canvas.get("problemStatement"):
-                    input_lines.append(f"    Problem Statement: {canvas.get('problemStatement')}")
-                if canvas.get("currentProcess"):
-                    input_lines.append(f"    Current Process: {canvas.get('currentProcess')}")
-                if canvas.get("painPoints"):
-                    input_lines.append(f"    Pain Points: {canvas.get('painPoints')}")
-                if canvas.get("frequency"):
-                    input_lines.append(f"    Frequency: {canvas.get('frequency')}")
-                if canvas.get("implicationsOfInaction"):
-                    input_lines.append(f"    Implications of Inaction: {canvas.get('implicationsOfInaction')}")
-                if canvas.get("primaryUsers"):
-                    users = canvas.get("primaryUsers")
-                    users_str = ", ".join(users) if isinstance(users, list) else str(users)
-                    input_lines.append(f"    Target Users: {users_str}")
-                if canvas.get("vpAudience") or canvas.get("vpOutcome") or canvas.get("vpMethod"):
-                    input_lines.append(f"    Value Proposition: Helps {canvas.get('vpAudience', '—')} achieve {canvas.get('vpOutcome', '—')} by {canvas.get('vpMethod', '—')}")
-                if canvas.get("solutionTypes"):
-                    stypes = canvas.get("solutionTypes")
-                    stypes_str = ", ".join(stypes) if isinstance(stypes, list) else str(stypes)
-                    input_lines.append(f"    Solution Type: {stypes_str}")
-                
-                # 2. Solution Strategy
-                input_lines.append("  2. Solution Strategy:")
-                if canvas.get("strategicAlignment"):
-                    sa = canvas.get("strategicAlignment", {})
-                    sa_str = ", ".join(f"{camel_to_title(k)}: {'Definite' if v == 2 else 'Potential' if v == 1 else 'None'}" for k, v in sa.items())
-                    input_lines.append(f"    Strategic Alignment: {sa_str}")
-                if canvas.get("industries") or canvas.get("functions") or canvas.get("regions"):
-                    ind = canvas.get("industries", [])
-                    fn = canvas.get("functions", [])
-                    reg = canvas.get("regions", [])
-                    ind_str = ", ".join(ind) if isinstance(ind, list) else str(ind)
-                    fn_str = ", ".join(fn) if isinstance(fn, list) else str(fn)
-                    reg_str = ", ".join(reg) if isinstance(reg, list) else str(reg)
-                    input_lines.append(f"    Scalability Scope: Industries: {ind_str} | Functions: {fn_str} | Regions: {reg_str}")
-                if canvas.get("currentAlternatives") or canvas.get("existingCompetitors") or canvas.get("whatMakesUnique"):
-                    input_lines.append(f"    Differentiation: Alternatives: {canvas.get('currentAlternatives', '—')} | Competitors: {canvas.get('existingCompetitors', '—')} | Unique Edge: {canvas.get('whatMakesUnique', '—')}")
-                
-                # 3. Execution, Feasibility & Adoption
-                input_lines.append("  3. Execution, Feasibility & Adoption:")
-                bi = canvas.get("businessImpact", {})
-                if bi:
-                    input_lines.append(f"    Business Impact: Est. Users: {bi.get('estimatedUsers', '0')} | Hrs Saved: {bi.get('hoursSavedPerUser', '0')}/wk | Savings: {bi.get('costSavings', '—')} | Revenue: {bi.get('revenuePotential', '—')}")
-                if canvas.get("projectedROI"):
-                    input_lines.append(f"    Projected ROI: {canvas.get('projectedROI')}")
-                if canvas.get("deploymentTimeDays"):
-                    input_lines.append(f"    Time to Deploy: {canvas.get('deploymentTimeDays')} days")
-                pricing = canvas.get("pricing", {})
-                if pricing:
-                    input_lines.append(f"    Pricing: Price/User: ${pricing.get('pricePerUser', '0')} | Deployment Fee: ${pricing.get('deploymentFees', '0')} | Amount: ${pricing.get('amount', '0')}")
-                if canvas.get("feasibility"):
-                    feas = canvas.get("feasibility", {})
-                    feas_str = ", ".join(f"{camel_to_title(k)}: {['Low', 'Medium-Low', 'Medium', 'Medium-High', 'High'][v-1] if 1 <= v <= 5 else str(v)}" for k, v in feas.items())
-                    input_lines.append(f"    Feasibility Scores: {feas_str}")
-                if canvas.get("anticipatedRoadblockers"):
-                    input_lines.append(f"    Anticipated Roadblockers: {canvas.get('anticipatedRoadblockers')}")
-                if canvas.get("adoption"):
-                    adopt = canvas.get("adoption", {})
-                    adopt_str = ", ".join(f"{camel_to_title(k)}: {['Low', 'Medium-Low', 'Medium', 'Medium-High', 'High'][v-1] if 1 <= v <= 5 else str(v)}" for k, v in adopt.items())
-                    input_lines.append(f"    Adoption Potential: {adopt_str}")
-                if canvas.get("decision") or canvas.get("decisionJustification"):
-                    input_lines.append(f"    Build vs Buy: Decision: {canvas.get('decision', '—')} | Justification: {canvas.get('decisionJustification', '—')}")
-                
-                # 4. Risks & Success Metrics
-                input_lines.append("  4. Risks & Success Metrics:")
-                risks = canvas.get("risks", {})
-                if risks:
-                    tech_r = risks.get("technical", [])
-                    op_r = risks.get("operational", [])
-                    tech_r_str = ", ".join(tech_r) if isinstance(tech_r, list) else str(tech_r)
-                    op_r_str = ", ".join(op_r) if isinstance(op_r, list) else str(op_r)
-                    input_lines.append(f"    Technical Risks: {tech_r_str or 'None'} | Operational Risks: {op_r_str or 'None'}")
-                sm = canvas.get("successMetrics", {})
-                if sm:
-                    input_lines.append(f"    KPIs & Targets: KPIs: {sm.get('kpis', '—')} | Targets: {sm.get('revenueTargets', '—')}")
-                if canvas.get("aiEvaluation"):
-                    input_lines.append(f"    AI Evaluation: {canvas.get('aiEvaluation')}")
-                
-    data_str = "\n".join(input_lines) if (tools or ideas) else "No pending items."
-    
+    # Stage 1: Lazy backfill — evaluate any items missing an ai_review_card
+    for t in tools:
+        if not t.ai_review_card or not t.ai_review_card.get("priority"):
+            try:
+                t.ai_review_card = await _evaluate_single_submission(t, "tool", s)
+                s.add(t); s.commit(); s.refresh(t)
+            except Exception as e:
+                print(f"AI Digest backfill failed for tool {t.id}: {e}")
+    for i in ideas:
+        if not i.ai_review_card or not i.ai_review_card.get("priority"):
+            try:
+                i.ai_review_card = await _evaluate_single_submission(i, "idea", s)
+                s.add(i); s.commit(); s.refresh(i)
+            except Exception as e:
+                print(f"AI Digest backfill failed for idea {i.id}: {e}")
+
+    # Stage 2: Deterministic portfolio table (pure Python, no AI)
+    portfolio = _build_portfolio_table(tools, ideas)
+
+    if not portfolio["all_rows"]:
+        return {"digest": "🚀 **Weekly Innovation Board Digest**\n\n_No pending submissions this week. The innovation pipeline is clear._", "via": "none (empty)", "portfolio": portfolio["stats"]}
+
+    # Stage 3: Build tiered prompt for AI narrative
+    stats = portfolio["stats"]
+    stats_block = (
+        f"PORTFOLIO STATISTICS (use these exact numbers — do not recalculate):\n"
+        f"- Total submissions awaiting review: {stats['total_items']}\n"
+        f"- Tools: {stats['tool_count']} | Ideas: {stats['idea_count']}\n"
+        f"- Priority breakdown: {stats['high_priority']} High, {stats['medium_priority']} Medium, {stats['low_priority']} Low\n"
+        f"- Total projected ROI across all tools: {stats['total_projected_roi']}/yr"
+    )
+
+    # Build spotlight deep-dives for top items (full raw detail)
+    spotlight_sections = []
+    for row in portfolio["top_items"]:
+        item = row["item"]
+        spotlight_sections.append(
+            f"--- SPOTLIGHT: {row['name']} ({row['type']}, {row['priority']} Priority) ---\n"
+            + _build_item_text(item, row["item_type"])
+        )
+
+    spotlight_block = "\n\n".join(spotlight_sections) if spotlight_sections else "No items selected for spotlight."
+
     sys_prompt = get_system_prompt(s, "prompt_executive_digest")
-    prompt = f"{sys_prompt}\n\nPending Submissions List:\n{data_str}"
+    prompt = (
+        f"{sys_prompt}\n\n"
+        f"{stats_block}\n\n"
+        f"PORTFOLIO SUMMARY TABLE:\n{portfolio['table_md']}\n\n"
+        f"SPOTLIGHT DEEP-DIVES (full submission details for top {len(portfolio['top_items'])} items):\n{spotlight_block}"
+    )
 
+    # Call AI using existing key pool logic with audit logging
     start_time = time.time()
-    
+
     def record_usage(prompt_str, response_str, provider_name, key_label, key_used_val):
         latency = time.time() - start_time
         u.ai_usage += 1
@@ -1654,7 +1689,7 @@ async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends
         audit = AIAuditLog(
             user_id=u.id,
             user_name=u.name or u.email,
-            prompt="[AI Executive Digest Generation]",
+            prompt="[AI Executive Digest Generation — 3-Stage Pipeline]",
             response=response_str[:500] + "...",
             provider=provider_name,
             api_key_used=key_label or "key",
@@ -1669,7 +1704,7 @@ async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends
     personal_key = u.ai_key
     res_text = None
     via = None
-    
+
     if u.role == "admin" and provider != "local" and personal_key:
         try:
             if provider == "gemini":
@@ -1682,7 +1717,7 @@ async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends
                 via = "personal openai"
         except Exception as e:
             print(f"AI Digest: Personal key failed, trying global pool. Error: {e}")
-            
+
     if not res_text:
         global_keys = s.exec(select(GlobalApiKey).where(GlobalApiKey.is_active == True).order_by(GlobalApiKey.id)).all()
         today_str = time.strftime("%Y-%m-%d")
@@ -1713,7 +1748,7 @@ async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends
                     break
             except Exception as e:
                 print(f"AI Digest: Global key {gkey.label} failed. Error: {e}")
-                
+
     if not res_text:
         try:
             model = getattr(u, "ai_model", None) or OLLAMA_MODEL
@@ -1721,8 +1756,8 @@ async def review_ai_digest(u: User = Depends(current_user), s: Session = Depends
             via = f"local ({model})"
         except Exception as e:
             raise HTTPException(502, f"AI generation failed. Key pool exhausted, and local model is offline. Error: {e}")
-            
-    return {"digest": res_text, "via": via}
+
+    return {"digest": res_text, "via": via, "portfolio": portfolio["stats"]}
 
 
 @app.post("/review/digest/push-teams")
@@ -1869,6 +1904,7 @@ def save_idea(body: dict, u: User = Depends(current_user), s: Session = Depends(
     i.updated_at = time.time()
     s.add(i); s.commit(); s.refresh(i)
     if i.status == "proposed" and not was_proposed:
+        _trigger_ai_review(i.id, "idea")
         problem = (i.canvas or {}).get("problemStatement", "") or ""
         notify_teams(s, f"💡 New idea submitted: {i.name}",
                      [f"**Owner:** {i.owner or u.name}",
@@ -1909,6 +1945,26 @@ def review_idea(idea_id: int, body: ReviewIn, u: User = Depends(require("committ
     i.updated_at = time.time()
     s.add(i); s.commit(); s.refresh(i)
     return public_idea(i, s)
+
+
+@app.post("/review/{item_type}/{item_id}/ai-review")
+async def trigger_ai_review_card(item_type: str, item_id: int, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    """Manually trigger or re-run AI review card for a single item."""
+    if u.role not in REVIEWER_ROLES:
+        raise HTTPException(403, "Reviewers only")
+    if item_type not in ("tools", "ideas"):
+        raise HTTPException(400, "item_type must be 'tools' or 'ideas'")
+    model_cls = Tool if item_type == "tools" else Idea
+    item = s.get(model_cls, item_id)
+    if not item:
+        raise HTTPException(404, "Not found")
+    result = await _evaluate_single_submission(item, "tool" if item_type == "tools" else "idea", s)
+    item.ai_review_card = result
+    s.add(item); s.commit(); s.refresh(item)
+    if item_type == "tools":
+        return public_tool(item, u, s)
+    return public_idea(item, s)
+
 
 # ----------------------------------------------------------------- VOC
 @app.get("/voc")
@@ -2924,7 +2980,203 @@ async def _openai(key: str, prompt: str) -> str:
         return r.json()["choices"][0]["message"]["content"].strip()
 
 
+# ----------------------------------------------------------------- Stage 1: Innovation Reviewer (Micro-Evaluator)
+
+async def _ai_call_with_pool(prompt: str, s: Session) -> str:
+    """Call AI using the global key pool with fallback to local model.
+    Reusable helper that mirrors the fallback logic from ai_generate / review_ai_digest."""
+    # Try global Gemini/OpenAI keys first
+    global_keys = s.exec(select(GlobalApiKey).where(GlobalApiKey.is_active == True).order_by(GlobalApiKey.id)).all()
+    today_str = time.strftime("%Y-%m-%d")
+    for gkey in global_keys:
+        if gkey.last_used_date != today_str:
+            gkey.last_used_date = today_str
+            gkey.daily_requests_count = 0
+            s.add(gkey); s.commit()
+        if gkey.daily_requests_count >= getattr(gkey, "daily_limit", 1000):
+            continue
+        try:
+            if gkey.provider == "gemini":
+                res = await _gemini(gkey.key_value, prompt)
+                gkey.requests_count += 1
+                gkey.daily_requests_count += 1
+                s.add(gkey); s.commit()
+                return res
+            elif gkey.provider == "openai":
+                res = await _openai(gkey.key_value, prompt)
+                gkey.requests_count += 1
+                gkey.daily_requests_count += 1
+                s.add(gkey); s.commit()
+                return res
+        except Exception as e:
+            print(f"AI Review: Global key {gkey.label} failed: {e}")
+    # Fallback to local model
+    try:
+        return await _ollama(OLLAMA_MODEL, prompt)
+    except Exception as e:
+        raise Exception(f"AI Review failed: No API keys available and local model is offline. Error: {e}")
+
+
+def _build_item_text(item, item_type: str) -> str:
+    """Build a compact text representation of a single tool or idea for AI evaluation."""
+    lines = []
+    if item_type == "tool":
+        lines.append(f"Type: Tool Submission")
+        lines.append(f"Name: {item.name}")
+        lines.append(f"Category: {item.category}")
+        lines.append(f"Owner: {item.owner}")
+        lines.append(f"Problem: {item.problem}")
+        if item.capabilities:
+            lines.append(f"Capabilities: {', '.join(item.capabilities) if isinstance(item.capabilities, list) else item.capabilities}")
+        lines.append(f"Delivers: {item.delivers}")
+        lines.append(f"Benefits: {item.benefits}")
+        lines.append(f"Impact: {item.impact}")
+        if item.roi:
+            lines.append(f"Claimed ROI: ${item.roi:,.0f}/yr")
+        lines.append(f"Implementation Status: {item.implementation_status}")
+        if item.account:
+            lines.append(f"Deployed Client: {item.account}")
+        if item.time_to_deploy:
+            lines.append(f"Time to Deploy: {item.time_to_deploy}")
+    else:  # idea
+        lines.append(f"Type: Idea Proposal")
+        lines.append(f"Name: {item.name}")
+        lines.append(f"Owner: {item.owner}")
+        lines.append(f"Votes: {item.votes}")
+        canvas = item.canvas or {}
+        if canvas.get("problemStatement"):
+            lines.append(f"Problem Statement: {canvas['problemStatement']}")
+        if canvas.get("currentProcess"):
+            lines.append(f"Current Process: {canvas['currentProcess']}")
+        if canvas.get("painPoints"):
+            lines.append(f"Pain Points: {canvas['painPoints']}")
+        if canvas.get("frequency"):
+            lines.append(f"Frequency: {canvas['frequency']}")
+        if canvas.get("implicationsOfInaction"):
+            lines.append(f"Implications of Inaction: {canvas['implicationsOfInaction']}")
+        if canvas.get("primaryUsers"):
+            users = canvas["primaryUsers"]
+            lines.append(f"Target Users: {', '.join(users) if isinstance(users, list) else users}")
+        if canvas.get("vpAudience") or canvas.get("vpOutcome") or canvas.get("vpMethod"):
+            lines.append(f"Value Proposition: Helps {canvas.get('vpAudience', '—')} achieve {canvas.get('vpOutcome', '—')} by {canvas.get('vpMethod', '—')}")
+        if canvas.get("solutionTypes"):
+            st = canvas["solutionTypes"]
+            lines.append(f"Solution Type: {', '.join(st) if isinstance(st, list) else st}")
+        sa = canvas.get("strategicAlignment", {})
+        if sa:
+            sa_parts = [f"{k}: {'Definite' if v == 2 else 'Potential' if v == 1 else 'None'}" for k, v in sa.items()]
+            lines.append(f"Strategic Alignment: {', '.join(sa_parts)}")
+        if canvas.get("industries") or canvas.get("functions") or canvas.get("regions"):
+            lines.append(f"Scalability: Industries: {', '.join(canvas.get('industries', []))} | Functions: {', '.join(canvas.get('functions', []))} | Regions: {', '.join(canvas.get('regions', []))}")
+        if canvas.get("currentAlternatives") or canvas.get("existingCompetitors") or canvas.get("whatMakesUnique"):
+            lines.append(f"Differentiation: Alternatives: {canvas.get('currentAlternatives', '—')} | Competitors: {canvas.get('existingCompetitors', '—')} | Unique: {canvas.get('whatMakesUnique', '—')}")
+        bi = canvas.get("businessImpact", {})
+        if bi:
+            lines.append(f"Business Impact: Est. Users: {bi.get('estimatedUsers', '0')} | Hrs Saved: {bi.get('hoursSavedPerUser', '0')}/wk | Savings: {bi.get('costSavings', '—')} | Revenue: {bi.get('revenuePotential', '—')}")
+        if canvas.get("projectedROI"):
+            lines.append(f"Projected ROI: {canvas['projectedROI']}")
+        if canvas.get("deploymentTimeDays"):
+            lines.append(f"Time to Deploy: {canvas['deploymentTimeDays']} days")
+        pricing = canvas.get("pricing", {})
+        if pricing:
+            lines.append(f"Pricing: Price/User: ${pricing.get('pricePerUser', '0')} | Deployment Fee: ${pricing.get('deploymentFees', '0')}")
+        feas = canvas.get("feasibility", {})
+        if feas:
+            feas_labels = {1: "Low", 2: "Medium-Low", 3: "Medium", 4: "Medium-High", 5: "High"}
+            feas_parts = [f"{k}: {feas_labels.get(v, str(v))}" for k, v in feas.items()]
+            lines.append(f"Feasibility: {', '.join(feas_parts)}")
+        if canvas.get("anticipatedRoadblockers"):
+            lines.append(f"Anticipated Roadblockers: {canvas['anticipatedRoadblockers']}")
+        adopt = canvas.get("adoption", {})
+        if adopt:
+            adopt_labels = {1: "Low", 2: "Medium-Low", 3: "Medium", 4: "Medium-High", 5: "High"}
+            adopt_parts = [f"{k}: {adopt_labels.get(v, str(v))}" for k, v in adopt.items()]
+            lines.append(f"Adoption Potential: {', '.join(adopt_parts)}")
+        if canvas.get("decision") or canvas.get("decisionJustification"):
+            lines.append(f"Build vs Buy: {canvas.get('decision', '—')} — {canvas.get('decisionJustification', '—')}")
+        risks = canvas.get("risks", {})
+        if risks:
+            tech_r = risks.get("technical", [])
+            op_r = risks.get("operational", [])
+            lines.append(f"Risks: Technical: {', '.join(tech_r) if isinstance(tech_r, list) else tech_r} | Operational: {', '.join(op_r) if isinstance(op_r, list) else op_r}")
+        sm = canvas.get("successMetrics", {})
+        if sm:
+            lines.append(f"KPIs & Targets: {sm.get('kpis', '—')} | Revenue Targets: {sm.get('revenueTargets', '—')}")
+    return "\n".join(lines)
+
+
+async def _evaluate_single_submission(item, item_type: str, s: Session) -> dict:
+    """Stage 1: Evaluate a single tool or idea and return a structured JSON review card."""
+    item_text = _build_item_text(item, item_type)
+    sys_prompt = get_system_prompt(s, "prompt_innovation_reviewer")
+    prompt = f"{sys_prompt}\n\nSubmission to evaluate:\n{item_text}"
+
+    try:
+        response_text = await _ai_call_with_pool(prompt, s)
+        # Clean markdown wrappers
+        cleaned = response_text.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")
+            if lines[0].startswith("```json") or lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            cleaned = "\n".join(lines).strip()
+        result = json.loads(cleaned)
+        # Validate required fields exist
+        valid_fields = {"priority", "recommendation", "strategic_lens", "quantifiable_impact",
+                        "differentiator", "primary_roadblock", "key_takeaway"}
+        for f in valid_fields:
+            if f not in result:
+                result[f] = "—"
+        # Normalize priority
+        if result["priority"] not in ("High", "Medium", "Low"):
+            result["priority"] = "Medium"
+        result["evaluated_at"] = time.time()
+        return result
+    except Exception as e:
+        return {
+            "priority": "Medium",
+            "recommendation": "More Info",
+            "strategic_lens": "Uncategorized",
+            "quantifiable_impact": "Unable to evaluate",
+            "differentiator": "—",
+            "primary_roadblock": f"AI evaluation failed: {str(e)[:200]}",
+            "key_takeaway": "AI evaluation was unable to complete. Please try re-running.",
+            "evaluated_at": time.time(),
+            "error": True
+        }
+
+
+def _trigger_ai_review(item_id: int, item_type: str):
+    """Fire-and-forget background AI review card generation."""
+    def run():
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            with Session(engine) as s:
+                item = s.get(Tool if item_type == "tool" else Idea, item_id)
+                if not item:
+                    return
+                result = loop.run_until_complete(_evaluate_single_submission(item, item_type, s))
+                # Re-fetch to avoid stale session
+                with Session(engine) as s2:
+                    item2 = s2.get(Tool if item_type == "tool" else Idea, item_id)
+                    if item2:
+                        item2.ai_review_card = result
+                        s2.add(item2)
+                        s2.commit()
+                        print(f"AI Review completed for {item_type} {item_id}: {result.get('priority')} / {result.get('recommendation')}")
+        except Exception as e:
+            print(f"AI Review background task failed for {item_type} {item_id}: {e}")
+        finally:
+            loop.close()
+    threading.Thread(target=run, daemon=True).start()
+
+
 # ----------------------------------------------------------------- tracking & analytics / global keys / credits
+
 
 class TrackActivityIn(BaseModel):
     page: str
@@ -3342,19 +3594,25 @@ Instructions:
 4. Local relative routes only: Always use local relative paths for local routing. For the Idea Pipeline, use exactly: [Idea Pipeline](/ideas). Never append external placeholder domains.
 5. Be professional, clear, encouraging, and concise.""",
 
-    "prompt_executive_digest": """You are the Executive Innovation Assistant. Act as an assistant creating an executive summary for the board to review and approve.
-Read the following list of pending submissions (tools and ideas awaiting review) and produce a high-impact, professional, ready-to-paste weekly cadence channel Executive Digest.
+    "prompt_executive_digest": """You are the Executive Innovation Assistant creating a board-ready executive digest.
+
+You will receive:
+1. A PORTFOLIO SUMMARY TABLE with AI-pre-scored items (priority, recommendation, impact)
+2. PORTFOLIO STATISTICS — exact counts and totals calculated by the system. Use these numbers VERBATIM. Do NOT recalculate or round them.
+3. SPOTLIGHT DEEP-DIVES — full raw submission details for the top high-priority items only.
 
 Guidelines:
-1. Start with a header like:
+1. Start with:
    "🚀 **Weekly Innovation Board Digest**"
-   followed by a brief 1-2 sentence overview of overall pending activity.
-2. Group the items into:
-   - **🎯 Tools Awaiting Approval**: Summarize each tool's core value, and give a clear board Recommendation (e.g. "Approve for Pilot", "Schedule Demo", "Return to Owner for Info").
-   - **💡 Community Ideas**: Summarize proposed ideas, noting community votes/demand, and suggest next steps.
-3. For each item, keep it concise (2-3 sentences max) but complete. Highlight estimated ROI or community impact.
-4. Keep the format clean, well-spaced, and actionable for board members.
-5. IMPORTANT: Include and summarize EVERY item present in the input list. Do not omit or skip any items.""",
+   followed by a 2-sentence overview using the exact portfolio statistics provided.
+2. Include the FULL portfolio table exactly as provided (do not omit any rows).
+3. For each SPOTLIGHT item, write a 2-3 paragraph strategic deep-dive that:
+   - Preserves specific numbers (dollar amounts, hours saved, user counts) — never generalize them.
+   - Highlights the unique differentiator and quotes the submission's own language.
+   - Notes key roadblocks or risks.
+   - Ends with a clear board action (e.g. "Approve for Pilot", "Schedule stakeholder demo", "Request additional ROI data").
+4. For items NOT in the spotlight, the portfolio table row is their complete representation — no extra text needed.
+5. End with a "Recommended Board Actions" section summarizing the top 3-5 decisions needed.""",
 
     "prompt_security_audit": """You are a senior devops and security auditor.
 Analyze the application codebase structure and configuration files.
@@ -3377,7 +3635,29 @@ Instructions:
 1. Assess the clarity of the problem, targeted business impact, estimated ROI, and technical feasibility.
 2. Provide constructive feedback for improving the scoping.
 3. Assign a Completeness Score (0% to 100%) based on how ready this idea is for committee review.
-4. Suggest 2-3 immediate next steps for the owner to advance this idea into a prototype."""
+4. Suggest 2-3 immediate next steps for the owner to advance this idea into a prototype.""",
+
+    "prompt_innovation_reviewer": """You are the Innovation Reviewer Agent for a corporate innovation marketplace.
+Evaluate a SINGLE submission (tool or idea) and extract structured evaluation data.
+
+You MUST return your response as a valid JSON object with these exact fields:
+{
+  "priority": "High" | "Medium" | "Low",
+  "recommendation": "Pilot" | "Develop" | "Demo" | "More Info" | "Decline",
+  "strategic_lens": "brief strategic category (e.g. Performance, Security, CX, Cost Reduction)",
+  "quantifiable_impact": "exact numbers from submission: ROI, hours saved, users affected (quote what's provided, don't invent)",
+  "differentiator": "1 sentence: what makes this unique vs alternatives (quote from submission)",
+  "primary_roadblock": "1 sentence: biggest barrier to adoption (quote from submission, or 'None identified')",
+  "key_takeaway": "1-2 sentences: board-ready summary preserving specific metrics and technical details"
+}
+
+Rules:
+- Extract and PRESERVE specific numbers (dollar amounts, hours saved, user counts) — never generalize them away.
+- Quote the submission's own language for differentiator and roadblock when possible.
+- priority = High if projected ROI > $50k or addresses a pain point affecting 50+ users.
+- recommendation = "More Info" if key fields (problem, impact, feasibility) are mostly empty.
+- Do NOT add fields beyond those listed above.
+- Return ONLY the JSON object, no markdown formatting or explanation."""
 }
 
 PROMPT_METADATA = {
@@ -3504,6 +3784,25 @@ Selected Manifest Snippet (package.json):
 - Value Proposition Outcome: Save 2 hours per user weekly across 100 active users.
 - Differentiation: Centralized marketplace to showcase offerings and eliminate duplicate building.
 - Cost Structure / Savings: Elimination of duplicate building efforts across teams."""
+    },
+    "prompt_innovation_reviewer": {
+        "title": "AI Innovation Reviewer (Stage 1 Evaluator)",
+        "description": "System prompt used to evaluate individual submissions when they are submitted. Produces a structured JSON review card with priority, recommendation, and key extracted facts.",
+        "category": "Review & Reporting",
+        "available_fields": [
+            {"token": "{item_text}", "desc": "Full text representation of a single tool or idea submission"}
+        ],
+        "sample_payload": """Submission to evaluate:
+Type: Tool Submission
+Name: DataVeil Studio
+Category: IX Suite
+Owner: Security Team
+Problem: Analysts copy raw client data into external AI tools, creating PII leakage risk.
+Capabilities: Local LLM masking, PII detection, API proxy
+Delivers: Masked data ready for external AI consumption
+Benefits: Zero PII leakage, 4.5 hrs/wk saved per analyst
+Claimed ROI: $180,000/yr
+Implementation Status: already_implemented"""
     }
 }
 
@@ -3591,14 +3890,16 @@ def migrate():
                          ("demo_container_port", "INTEGER DEFAULT NULL"),
                          ("demo_container_build_logs", "TEXT DEFAULT ''"),
                          ("demo_security_report", "TEXT DEFAULT ''"),
-                         ("review_comments", "JSON DEFAULT '[]'")]:
+                         ("review_comments", "JSON DEFAULT '[]'"),
+                         ("ai_review_card", "JSON DEFAULT '{}'")]:
             if tcols and col not in tcols:
                 conn.exec_driver_sql(f"ALTER TABLE tool ADD COLUMN {col} {ddl}")
         icols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(idea)").fetchall()]
         for col, ddl in [("review_note", "VARCHAR DEFAULT ''"), ("decided_by", "VARCHAR DEFAULT ''"),
                          ("votes", "INTEGER DEFAULT 0"), ("voters", "JSON DEFAULT '[]'"),
                          ("notes", "JSON DEFAULT '[]'"),
-                         ("review_comments", "JSON DEFAULT '[]'")]:
+                         ("review_comments", "JSON DEFAULT '[]'"),
+                         ("ai_review_card", "JSON DEFAULT '{}'")]:
             if icols and col not in icols:
                 conn.exec_driver_sql(f"ALTER TABLE idea ADD COLUMN {col} {ddl}")
         
