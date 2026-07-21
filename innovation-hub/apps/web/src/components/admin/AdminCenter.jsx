@@ -90,6 +90,7 @@ export default function AdminCenter() {
   const [prompts, setPrompts] = useState({});
   const [loadingPrompts, setLoadingPrompts] = useState(false);
   const [savingPrompts, setSavingPrompts] = useState(false);
+  const [previewPayloadItem, setPreviewPayloadItem] = useState(null);
 
   const fetchPrompts = async () => {
     setLoadingPrompts(true);
@@ -1951,21 +1952,70 @@ export default function AdminCenter() {
                         <p style={{ margin: 0, fontSize: 12.5, color: 'var(--text-secondary)' }}>{item.description}</p>
                       </div>
 
-                      {item.is_custom && (
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <button
-                          onClick={() => handleResetPrompt(item.key)}
+                          type="button"
+                          onClick={() => setPreviewPayloadItem(item)}
                           style={{
                             padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-color)',
-                            background: 'transparent', color: 'var(--text-muted)', fontSize: 12,
+                            background: 'var(--bg-main)', color: 'var(--primary-text)', fontSize: 12,
                             fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6
                           }}
-                          onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--danger)'; e.currentTarget.style.color = 'var(--danger)'; }}
-                          onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
                         >
-                          <Trash2 size={13} /> Reset to Default
+                          <Eye size={13} style={{ color: 'var(--primary)' }} /> Inspect Passed Data Payload
                         </button>
-                      )}
+
+                        {item.is_custom && (
+                          <button
+                            onClick={() => handleResetPrompt(item.key)}
+                            style={{
+                              padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-color)',
+                              background: 'transparent', color: 'var(--text-muted)', fontSize: 12,
+                              fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6
+                            }}
+                            onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--danger)'; e.currentTarget.style.color = 'var(--danger)'; }}
+                            onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                          >
+                            <Trash2 size={13} /> Reset to Default
+                          </button>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Available Fields & Data Tokens Toolbar */}
+                    {item.available_fields && item.available_fields.length > 0 && (
+                      <div style={{ background: 'var(--bg-main)', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Sparkles size={13} style={{ color: 'var(--primary)' }} /> Available Fields &amp; Data Tokens (Click to insert into prompt)
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {item.available_fields.map((f, fIdx) => (
+                            <button
+                              key={fIdx}
+                              type="button"
+                              title={`${f.desc} — Click to insert into prompt`}
+                              onClick={() => {
+                                const val = item.value || '';
+                                const spacer = (val.endsWith(' ') || val.endsWith('\n') || !val) ? '' : ' ';
+                                handlePromptChange(item.key, val + spacer + f.token);
+                              }}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 6,
+                                padding: '4px 10px', borderRadius: 6,
+                                background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+                                color: 'var(--primary-text)', fontSize: 12, fontFamily: 'monospace',
+                                cursor: 'pointer', transition: 'all 0.15s'
+                              }}
+                              onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.color = 'var(--primary)'; }}
+                              onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--primary-text)'; }}
+                            >
+                              <span style={{ fontWeight: 700 }}>{f.token}</span>
+                              <span style={{ fontSize: 10.5, color: 'var(--text-muted)', fontFamily: 'sans-serif' }}>({f.desc})</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     <div style={{ position: 'relative' }}>
                       <textarea
@@ -1994,6 +2044,93 @@ export default function AdminCenter() {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Modal: Passed AI Data Payload Inspector */}
+          {previewPayloadItem && (
+            <div style={{
+              position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+              background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(5px)'
+            }}>
+              <div style={{
+                background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+                padding: 24, borderRadius: 16, width: '90%', maxWidth: 780,
+                maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.4)',
+                display: 'flex', flexDirection: 'column', gap: 16
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: 12 }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Eye size={18} style={{ color: 'var(--primary)' }} /> Passed AI Data Payload Inspector
+                    </h3>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      {previewPayloadItem.title} (<code style={{ color: 'var(--primary-text)' }}>{previewPayloadItem.key}</code>)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewPayloadItem(null)}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 600, fontSize: 12.5 }}
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  Below is the exact data structure and context payload passed to the AI model alongside this system prompt when a user runs a query or generates a result:
+                </div>
+
+                {previewPayloadItem.available_fields?.length > 0 && (
+                  <div style={{ background: 'var(--bg-main)', padding: 14, borderRadius: 10, border: '1px solid var(--border-color)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>
+                      Included Data Fields &amp; Available Tokens:
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      {previewPayloadItem.available_fields.map((f, i) => (
+                        <div key={i} style={{ fontSize: 12 }}>
+                          <code style={{ color: 'var(--primary)', fontWeight: 700 }}>{f.token}</code>: <span style={{ color: 'var(--text-secondary)' }}>{f.desc}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>
+                    Sample Input Data Payload (Appended to System Prompt):
+                  </div>
+                  <pre style={{
+                    margin: 0, padding: 16, borderRadius: 10,
+                    background: '#090d16', color: '#38bdf8', border: '1px solid var(--border-color)',
+                    fontFamily: 'JetBrains Mono, Courier New, monospace', fontSize: 12.5,
+                    whiteSpace: 'pre-wrap', maxHeight: 350, overflowY: 'auto', lineHeight: 1.45
+                  }}>
+                    {previewPayloadItem.sample_payload || 'No sample payload available for this prompt.'}
+                  </pre>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-color)' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(previewPayloadItem.sample_payload || '');
+                      alert('Sample payload copied to clipboard!');
+                    }}
+                    style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 600, fontSize: 12.5 }}
+                  >
+                    Copy Sample Payload
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewPayloadItem(null)}
+                    style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: 'var(--primary)', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 12.5 }}
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

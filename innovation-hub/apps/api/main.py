@@ -3075,22 +3075,126 @@ PROMPT_METADATA = {
     "prompt_matchmaker": {
         "title": "AI Matchmaker & Copilot Assistant",
         "description": "System prompt used by the AI Matchmaker chat and floating Copilot drawer to match user pain points with catalog tools.",
-        "category": "Chat & Guidance"
+        "category": "Chat & Guidance",
+        "available_fields": [
+            {"token": "{user_query}", "desc": "The raw question or business pain point typed by the user"},
+            {"token": "{catalog_tools}", "desc": "List of active tools in catalog (Name, Category, Problem, Capabilities, Delivers)"},
+            {"token": "{user_role}", "desc": "Role of the user submitting the query"}
+        ],
+        "sample_payload": """[Pending User Query]
+"We spend hours every week copying data across client decks manually. Is there a tool for this?"
+
+[Available Catalog Context Passed to AI]
+- Name: PitchDeck Generator | Category: IX Suite | Owner: Operations Team
+  Problem: Scattered custom innovation tools and scripts across different teams.
+  Capabilities: Deck Automation, Powerpoint Export, Template Sync
+  Delivers: Automated slide generation for executive updates
+- Name: Process Mining Engine | Category: Tech Infusion | Owner: Analytics
+  Problem: Bottlenecks in client review process.
+  Capabilities: Process Mapping, Throughput Analytics"""
     },
     "prompt_executive_digest": {
         "title": "AI Executive Board Digest",
         "description": "System prompt used by the Review Center to generate weekly board digests of pending tools and ideas.",
-        "category": "Review & Reporting"
+        "category": "Review & Reporting",
+        "available_fields": [
+            {"token": "{tools_list}", "desc": "Tools awaiting review (Name, Category, Owner, ROI, Problem, Capabilities, Review Status)"},
+            {"token": "{ideas_list}", "desc": "Proposed ideas awaiting review with full 4-Phase Scoping Canvas details"},
+            {"token": "{canvas.problemStatement}", "desc": "Core problem statement of each idea"},
+            {"token": "{canvas.currentProcess}", "desc": "Current process & pain points"},
+            {"token": "{canvas.vpOutcome}", "desc": "Target value proposition outcome"},
+            {"token": "{canvas.strategicAlignment}", "desc": "Alignment to Revenue, Cost, Productivity, CSAT"},
+            {"token": "{canvas.businessImpact}", "desc": "Users, Hours Saved, Cost Savings, Revenue"},
+            {"token": "{canvas.feasibility}", "desc": "Technical, Data, Resource, Security feasibility scores"},
+            {"token": "{canvas.risks}", "desc": "Technical and operational risk factors"},
+            {"token": "{canvas.successMetrics}", "desc": "KPIs and target metrics"}
+        ],
+        "sample_payload": """Pending Submissions List (Passed to AI):
+
+Tools Awaiting Review:
+- Name: Enterprise Insights Portal | Category: IX Suite | Owner: mahmoud.abdelnaby | ROI: $45,000/yr
+  Problem: Disparate analytics reporting dashboards without single sign-on.
+  Capabilities: SSO, Unified Navigation, Real-time Alerts
+  Review Status: pending
+
+Proposed Ideas:
+- Title: Centralized Product Marketplace | Owner: Mahmoud Adel | Votes: 12
+  1. Concept & Problem:
+    Problem Statement: Teams build duplicate custom tools without governance.
+    Current Process: Innovators build without checking if solutions exist.
+    Pain Points: Scattered scripts, Duplicate building, Lack of repository.
+    Frequency: weekly
+    Implications of Inaction: Continued time waste and deck requests.
+    Target Users: Operations, Sales, Clients, Innovation, Analytics
+    Value Proposition: Helps Sales & Ops achieve 2 hrs/wk saved by eliminating duplicate building
+    Solution Type: Internal Tool, SaaS Product
+  2. Solution Strategy:
+    Strategic Alignment: Revenue Growth: Definite, Cost Reduction: Potential, Productivity: Definite
+    Scalability Scope: Industries: Internal | Functions: Operations, Sales | Regions: Global
+    Differentiation: Alternatives: PPT decks | Competitors: None | Unique Edge: AI matching marketplace
+  3. Execution, Feasibility & Adoption:
+    Business Impact: Est. Users: 100 | Hrs Saved: 2/wk | Savings: Eliminates duplicate work | Revenue: N/A
+    Feasibility Scores: Technical: Medium-High, Data Availability: High, Security: High
+    Anticipated Roadblockers: Hosted container required for live demos
+    Adoption Potential: Ease Of Use: High, Training Reqs: Low, User Demand: High
+    Build vs Buy: Decision: Build | Justification: Proprietary internal workflow
+  4. Risks & Success Metrics:
+    Technical Risks: Hosting environments, AI Companion Costs
+    Operational Risks: None
+    KPIs & Targets: Single source of truth saving hours of duplicate work"""
     },
     "prompt_security_audit": {
         "title": "AI Code Security Auditor & Docker Builder",
         "description": "System prompt used when scanning uploaded tool ZIP files for security vulnerabilities and generating Dockerfiles.",
-        "category": "Security & Build"
+        "category": "Security & Build",
+        "available_fields": [
+            {"token": "{zip_path}", "desc": "Path to the uploaded demo ZIP file"},
+            {"token": "{file_tree}", "desc": "File tree structure of the extracted application repository"},
+            {"token": "{code_snippets}", "desc": "Key file contents (package.json, requirements.txt, main.py, App.jsx, Dockerfile)"},
+            {"token": "{detected_stack}", "desc": "Heuristically detected tech stack (Vite, React, FastAPI, Node, Static HTML)"}
+        ],
+        "sample_payload": """Uploaded Repository Context (Passed to AI):
+
+Repository File Tree:
+├── package.json
+├── vite.config.js
+├── src/
+│   ├── main.jsx
+│   └── App.jsx
+└── public/
+    └── index.html
+
+Selected Manifest Snippet (package.json):
+{
+  "name": "demo-app",
+  "dependencies": {
+    "react": "^18.2.0",
+    "vite": "^4.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  }
+}"""
     },
     "prompt_scoping_evaluator": {
         "title": "AI Canvas Scoping & Strategic Evaluator",
         "description": "System prompt used when evaluating Innovation Opportunity Canvases and generating strategic board pitches.",
-        "category": "Idea Pipeline"
+        "category": "Idea Pipeline",
+        "available_fields": [
+            {"token": "{canvas.name}", "desc": "Title of the idea being evaluated"},
+            {"token": "{canvas.problemStatement}", "desc": "Problem statement defined in phase 1"},
+            {"token": "{canvas.vpOutcome}", "desc": "Value proposition outcome and benefit"},
+            {"token": "{canvas.whatMakesUnique}", "desc": "Differentiation and competitive advantage"},
+            {"token": "{canvas.businessImpact}", "desc": "Estimated cost savings, revenue, and user impact"}
+        ],
+        "sample_payload": """Scoping Canvas Evaluation Request (Passed to AI):
+
+- Name: Centralized Product Marketplace
+- Problem Statement: Teams build duplicate custom tools without governance.
+- Value Proposition Outcome: Save 2 hours per user weekly across 100 active users.
+- Differentiation: Centralized marketplace to showcase offerings and eliminate duplicate building.
+- Cost Structure / Savings: Elimination of duplicate building efforts across teams."""
     }
 }
 
@@ -3112,6 +3216,8 @@ def get_admin_prompts(u: User = Depends(require("admin")), s: Session = Depends(
             "title": meta.get("title", key),
             "description": meta.get("description", ""),
             "category": meta.get("category", "General"),
+            "available_fields": meta.get("available_fields", []),
+            "sample_payload": meta.get("sample_payload", ""),
             "value": val,
             "default_value": default_val,
             "is_custom": bool(setting and setting.value and setting.value != default_val)
