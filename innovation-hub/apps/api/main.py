@@ -2359,44 +2359,353 @@ def admin_delete_user(user_id: int, u: User = Depends(require("admin")), s: Sess
     return {"ok": True}
 
 
+# ----------------------------------------------------------------- Backup, Bulk Extract & External Integration API
 @app.get("/admin/backup")
 def get_backup(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
     tools_all = s.exec(select(Tool)).all()
     ideas_all = s.exec(select(Idea)).all()
+    voc_all = s.exec(select(VocIssue)).all()
+    settings_all = s.exec(select(Setting)).all()
     
-    # We serialize full Tool/Idea dicts, including demo_html
     return {
         "format": "ai-tool-catalog",
-        "version": 1,
+        "version": 2,
         "exportedAt": time.time(),
         "tools": [t.dict() for t in tools_all],
         "ideas": [i.dict() for i in ideas_all],
+        "voc": [v.dict() for v in voc_all],
+        "settings": {st.key: st.value for st in settings_all}
     }
 
 
 @app.post("/admin/backup")
 def restore_backup(body: dict, u: User = Depends(require("admin")), s: Session = Depends(get_session)):
-    if body.get("format") != "ai-tool-catalog":
-        raise HTTPException(400, "Invalid backup format")
+    fmt = body.get("format")
+    if fmt != "ai-tool-catalog":
+        raise HTTPException(400, "Invalid backup format. Expected format 'ai-tool-catalog'.")
     
-    # Clear tables
-    s.execute(conn_block := s.connection())
-    conn_block.execute(conn_block.dialect.dataset_execute("DELETE FROM tool") if hasattr(conn_block.dialect, "dataset_execute") else "DELETE FROM tool")
-    s.execute("DELETE FROM idea")
+    from sqlmodel import delete
+    s.exec(delete(Tool))
+    s.exec(delete(Idea))
     
+    valid_tool_keys = set(Tool.__fields__.keys()) if hasattr(Tool, "__fields__") else set(Tool.model_fields.keys())
+    valid_idea_keys = set(Idea.__fields__.keys()) if hasattr(Idea, "__fields__") else set(Idea.model_fields.keys())
+    
+    tools_imported = 0
+    ideas_imported = 0
+
     for t_data in body.get("tools", []):
-        t_data.pop("created_at", None)
-        t = Tool(**t_data)
+        if not isinstance(t_data, dict):
+            continue
+        # Map legacy camelCase keys if present from older backups
+        if "hasDemo" in t_data and "has_demo" not in t_data:
+            t_data["has_demo"] = t_data.pop("hasDemo")
+        if "pptUrl" in t_data and "ppt_url" not in t_data:
+            t_data["ppt_url"] = t_data.pop("pptUrl")
+        if "demoUrl" in t_data and "demo_url" not in t_data:
+            t_data["demo_url"] = t_data.pop("demoUrl")
+        if "demoHtml" in t_data and "demo_html" not in t_data:
+            t_data["demo_html"] = t_data.pop("demoHtml")
+        if "videoUrl" in t_data and "video_url" not in t_data:
+            t_data["video_url"] = t_data.pop("videoUrl")
+            
+        if "id" in t_data and not isinstance(t_data["id"], int):
+            t_data.pop("id")
+
+        filtered = {k: v for k, v in t_data.items() if k in valid_tool_keys}
+        t = Tool(**filtered)
         s.add(t)
+        tools_imported += 1
     
     for i_data in body.get("ideas", []):
-        i_data.pop("created_at", None)
-        i_data.pop("updated_at", None)
-        i = Idea(**i_data)
+        if not isinstance(i_data, dict):
+            continue
+        if "id" in i_data and not isinstance(i_data["id"], int):
+            i_data.pop("id")
+        filtered = {k: v for k, v in i_data.items() if k in valid_idea_keys}
+        i = Idea(**filtered)
         s.add(i)
+        ideas_imported += 1
+        
+    if "voc" in body and isinstance(body["voc"], list):
+        s.exec(delete(VocIssue))
+        valid_voc_keys = set(VocIssue.__fields__.keys()) if hasattr(VocIssue, "__fields__") else set(VocIssue.model_fields.keys())
+        for v_data in body["voc"]:
+            if isinstance(v_data, dict):
+                if "id" in v_data and not isinstance(v_data["id"], int):
+                    v_data.pop("id")
+                filtered = {k: v for k, v in v_data.items() if k in valid_voc_keys}
+                v = VocIssue(**filtered)
+                s.add(v)
+                
+    if "settings" in body and isinstance(body["settings"], dict):
+        for k, v in body["settings"].items():
+            row = s.get(Setting, k)
+            if not row: row = Setting(key=k)
+            row.value = str(v)
+            s.add(row)
     
     s.commit()
-    return {"ok": True}
+    return {"ok": True, "message": f"Successfully restored backup! ({tools_imported} products, {ideas_imported} ideas imported)"}
+
+
+# ----------------------------------------------------------------- Bulk Extract Endpoints
+@app.get("/admin/extract/json")
+def bulk_extract_json(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    tools = s.exec(select(Tool).order_by(Tool.created_at.desc())).all()
+    ideas = s.exec(select(Idea).order_by(Idea.updated_at.desc())).all()
+    
+    data = {
+        "title": "Marketplace Bulk Data Extract",
+        "exported_at": dt.datetime.utcnow().isoformat() + "Z",
+        "exported_by": u.name or u.email,
+        "tool_count": len(tools),
+        "idea_count": len(ideas),
+        "products": [t.dict() for t in tools],
+        "ideas": [i.dict() for i in ideas]
+    }
+    
+    json_bytes = json.dumps(data, indent=2).encode("utf-8")
+    return Response(
+        content=json_bytes,
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename=marketplace_bulk_extract_{dt.date.today().isoformat()}.json"}
+    )
+
+
+@app.get("/admin/extract/csv/tools")
+def bulk_extract_tools_csv(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    import csv, io
+    tools = s.exec(select(Tool).order_by(Tool.created_at.desc())).all()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    writer.writerow([
+        "Tool ID", "Name", "Category", "Owner", "Status", "Review Status",
+        "Problem Statement", "Capabilities", "What it Delivers", "Benefits",
+        "ROI ($/yr)", "Time to Deploy", "Implementation Status", "Demo Type",
+        "Demo Link", "Created At"
+    ])
+    
+    for t in tools:
+        caps = ", ".join(t.capabilities) if isinstance(t.capabilities, list) else str(t.capabilities or "")
+        created_str = dt.datetime.fromtimestamp(t.created_at).strftime("%Y-%m-%d %H:%M") if t.created_at else ""
+        writer.writerow([
+            t.id, t.name, t.category, t.owner, t.status, t.review_status,
+            t.problem, caps, t.delivers, t.benefits,
+            t.roi or 0, t.time_to_deploy or "", t.implementation_status or "", t.demo_type or "",
+            t.demo_url or "", created_str
+        ])
+        
+    output.seek(0)
+    return Response(
+        content=output.getvalue().encode("utf-8-sig"),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=marketplace_products_extract_{dt.date.today().isoformat()}.csv"}
+    )
+
+
+@app.get("/admin/extract/csv/ideas")
+def bulk_extract_ideas_csv(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
+    import csv, io
+    ideas = s.exec(select(Idea).order_by(Idea.updated_at.desc())).all()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    writer.writerow([
+        "Idea ID", "Title", "Owner", "Status", "Votes", "Team",
+        "Problem Statement", "Current Process", "Pain Points", "Target Users", "Value Proposition",
+        "Strategic Alignment", "Scalability Scope", "Differentiation",
+        "Est. Users", "Hours Saved/Wk", "Cost Savings", "Revenue Potential", "Projected ROI",
+        "Feasibility Scores", "Roadblockers", "Build vs Buy Decision",
+        "Technical Risks", "Operational Risks", "KPIs & Targets", "AI Evaluation", "Updated At"
+    ])
+    
+    for i in ideas:
+        c = i.canvas or {}
+        users = ", ".join(c.get("primaryUsers", [])) if isinstance(c.get("primaryUsers"), list) else str(c.get("primaryUsers") or "")
+        vp = f"Helps {c.get('vpAudience', '—')} achieve {c.get('vpOutcome', '—')} by {c.get('vpMethod', '—')}" if c.get('vpAudience') else ""
+        
+        sa = c.get("strategicAlignment", {})
+        sa_str = ", ".join(f"{k}: {'Definite' if v == 2 else 'Potential' if v == 1 else 'None'}" for k, v in sa.items()) if isinstance(sa, dict) else ""
+        
+        scope = f"Industries: {', '.join(c.get('industries', []))} | Functions: {', '.join(c.get('functions', []))} | Regions: {', '.join(c.get('regions', []))}"
+        diff = f"Alts: {c.get('currentAlternatives', '—')} | Competitors: {c.get('existingCompetitors', '—')} | Unique: {c.get('whatMakesUnique', '—')}"
+        
+        bi = c.get("businessImpact", {})
+        est_users = bi.get("estimatedUsers", "0") if isinstance(bi, dict) else "0"
+        hrs_saved = bi.get("hoursSavedPerUser", "0") if isinstance(bi, dict) else "0"
+        cost_sav = bi.get("costSavings", "—") if isinstance(bi, dict) else "—"
+        rev_pot = bi.get("revenuePotential", "—") if isinstance(bi, dict) else "—"
+        
+        feas = c.get("feasibility", {})
+        feas_str = ", ".join(f"{k}: {v}" for k, v in feas.items()) if isinstance(feas, dict) else ""
+        
+        bvb = f"Decision: {c.get('decision', '—')} | Justification: {c.get('decisionJustification', '—')}"
+        
+        risks = c.get("risks", {})
+        tech_r = ", ".join(risks.get("technical", [])) if isinstance(risks, dict) and isinstance(risks.get("technical"), list) else ""
+        op_r = ", ".join(risks.get("operational", [])) if isinstance(risks, dict) and isinstance(risks.get("operational"), list) else ""
+        
+        sm = c.get("successMetrics", {})
+        kpis = f"KPIs: {sm.get('kpis', '—')} | Targets: {sm.get('revenueTargets', '—')}" if isinstance(sm, dict) else ""
+        
+        updated_str = dt.datetime.fromtimestamp(i.updated_at).strftime("%Y-%m-%d %H:%M") if i.updated_at else ""
+        
+        writer.writerow([
+            i.id, i.name, i.owner, i.status, i.votes, i.team or "",
+            c.get("problemStatement", ""), c.get("currentProcess", ""), c.get("painPoints", ""), users, vp,
+            sa_str, scope, diff,
+            est_users, hrs_saved, cost_sav, rev_pot, c.get("projectedROI", ""),
+            feas_str, c.get("anticipatedRoadblockers", ""), bvb,
+            tech_r, op_r, kpis, c.get("aiEvaluation", ""), updated_str
+        ])
+        
+    output.seek(0)
+    return Response(
+        content=output.getvalue().encode("utf-8-sig"),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=marketplace_ideas_extract_{dt.date.today().isoformat()}.csv"}
+    )
+
+
+# ----------------------------------------------------------------- External Integration Public REST API
+def verify_external_api_key(api_key: Optional[str] = Header(None, alias="X-API-Key"), key_query: Optional[str] = None, s: Session = Depends(get_session)):
+    target_key = api_key or key_query
+    req_row = s.get(Setting, "external_api_require_key")
+    if req_row and req_row.value == "true":
+        if not target_key:
+            raise HTTPException(401, "API Key required in X-API-Key header or ?api_key= query parameter.")
+        key_row = s.get(Setting, "external_api_key")
+        valid_keys = [k.strip() for k in (key_row.value if key_row else "").split(",") if k.strip()]
+        pool_keys = [g.key_value for g in s.exec(select(GlobalApiKey).where(GlobalApiKey.is_active == True)).all()]
+        if target_key not in valid_keys and target_key not in pool_keys:
+            raise HTTPException(403, "Invalid External API Key.")
+    return True
+
+
+@app.get("/api/v1/public/tools")
+def public_api_tools(category: Optional[str] = None, status: Optional[str] = None, authenticated: bool = Depends(verify_external_api_key), s: Session = Depends(get_session)):
+    """External API endpoint to query published products/tools from Marketplace."""
+    query = select(Tool)
+    if category:
+        query = query.where(Tool.category == category)
+    if status:
+        query = query.where(Tool.status == status)
+    else:
+        query = query.where(Tool.review_status == "approved")
+        
+    tools = s.exec(query.order_by(Tool.created_at.desc())).all()
+    return {
+        "status": "success",
+        "count": len(tools),
+        "data": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "category": t.category,
+                "status": t.status,
+                "owner": t.owner,
+                "problem": t.problem,
+                "capabilities": t.capabilities,
+                "delivers": t.delivers,
+                "benefits": t.benefits,
+                "impact": t.impact,
+                "roi_annual": t.roi,
+                "time_to_deploy": t.time_to_deploy,
+                "implementation_status": t.implementation_status,
+                "demo_type": t.demo_type,
+                "demo_url": t.demo_url,
+                "created_at": t.created_at
+            }
+            for t in tools
+        ]
+    }
+
+
+@app.get("/api/v1/public/tools/{tool_id}")
+def public_api_tool_detail(tool_id: int, authenticated: bool = Depends(verify_external_api_key), s: Session = Depends(get_session)):
+    """External API endpoint to fetch detailed metadata for a single product."""
+    t = s.get(Tool, tool_id)
+    if not t:
+        raise HTTPException(404, f"Tool with ID {tool_id} not found.")
+    return {
+        "status": "success",
+        "data": {
+            "id": t.id,
+            "name": t.name,
+            "category": t.category,
+            "status": t.status,
+            "owner": t.owner,
+            "problem": t.problem,
+            "capabilities": t.capabilities,
+            "delivers": t.delivers,
+            "benefits": t.benefits,
+            "impact": t.impact,
+            "roi_annual": t.roi,
+            "time_to_deploy": t.time_to_deploy,
+            "implementation_status": t.implementation_status,
+            "demo_type": t.demo_type,
+            "demo_url": t.demo_url,
+            "co_owners": t.co_owners,
+            "votes": t.votes,
+            "created_at": t.created_at
+        }
+    }
+
+
+@app.get("/api/v1/public/ideas")
+def public_api_ideas(status: Optional[str] = None, authenticated: bool = Depends(verify_external_api_key), s: Session = Depends(get_session)):
+    """External API endpoint to query innovation ideas and their scoping canvas details."""
+    query = select(Idea)
+    if status:
+        query = query.where(Idea.status == status)
+    else:
+        query = query.where(Idea.status.in_(["proposed", "approved"]))
+        
+    ideas = s.exec(query.order_by(Idea.updated_at.desc())).all()
+    return {
+        "status": "success",
+        "count": len(ideas),
+        "data": [
+            {
+                "id": i.id,
+                "title": i.name,
+                "owner": i.owner,
+                "status": i.status,
+                "votes": i.votes,
+                "team": i.team,
+                "canvas": i.canvas,
+                "created_at": i.created_at,
+                "updated_at": i.updated_at
+            }
+            for i in ideas
+        ]
+    }
+
+
+@app.get("/api/v1/public/stats")
+def public_api_stats(authenticated: bool = Depends(verify_external_api_key), s: Session = Depends(get_session)):
+    """External API endpoint to retrieve high-level Marketplace telemetry stats."""
+    tools = s.exec(select(Tool)).all()
+    ideas = s.exec(select(Idea)).all()
+    
+    total_roi = sum(t.roi or 0 for t in tools)
+    categories = {}
+    for t in tools:
+        categories[t.category] = categories.get(t.category, 0) + 1
+        
+    return {
+        "status": "success",
+        "data": {
+            "total_products": len(tools),
+            "total_ideas": len(ideas),
+            "approved_products": len([t for t in tools if t.review_status == "approved"]),
+            "pending_reviews": len([t for t in tools if t.review_status == "pending"]) + len([i for i in ideas if i.status == "proposed"]),
+            "total_projected_roi": total_roi,
+            "category_distribution": categories
+        }
+    }
 
 
 @app.get("/admin/settings")

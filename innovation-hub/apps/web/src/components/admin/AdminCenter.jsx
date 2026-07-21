@@ -916,7 +916,7 @@ export default function AdminCenter() {
 
   if (me?.role !== 'admin') return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Admins only.</div>;
 
-  const TAB_ICONS = { access: ShieldCheck, users: Users, routing: Settings, sorting: ArrowUpDown, keys: Key, prompts: Bot, analytics: BarChart2 };
+  const TAB_ICONS = { access: ShieldCheck, users: Users, routing: Settings, sorting: ArrowUpDown, keys: Key, prompts: Bot, extract: Zap, analytics: BarChart2 };
 
   return (
     <div style={{ position: 'relative', zIndex: 1, maxWidth: 1020, margin: '0 auto', padding: '32px 24px' }}>
@@ -927,7 +927,7 @@ export default function AdminCenter() {
         <div>
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 800, margin: 0, letterSpacing: '-0.02em' }}>Admin Center</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
-            Manage users, organizations, permissions, routing, catalog sorting, AI system prompts, AI keys, and telemetry.
+            Manage users, organizations, permissions, routing, catalog sorting, AI system prompts, AI keys, bulk data extract, external APIs, and telemetry.
           </p>
         </div>
       </div>
@@ -948,6 +948,7 @@ export default function AdminCenter() {
           { id: 'sorting', label: 'Catalog Sorting' },
           { id: 'keys', label: 'API Keys Pool' },
           { id: 'prompts', label: 'AI System Prompts' },
+          { id: 'extract', label: 'Data Extract & API' },
           { id: 'analytics', label: 'Telemetry & Audits' }
         ].map((tab) => {
           const Icon = TAB_ICONS[tab.id];
@@ -2132,7 +2133,127 @@ export default function AdminCenter() {
                 </div>
               </div>
             </div>
-          )}
+      {/* TAB CONTENT: DATA EXTRACT & EXTERNAL REST API */}
+      {adminTab === 'extract' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          {/* Bulk Data Extraction Section */}
+          <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, margin: '0 0 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <FileText size={18} style={{ color: 'var(--primary)' }} /> Bulk Data Extract (Products &amp; Scoping Ideas)
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '0 0 20px' }}>
+              Export comprehensive marketplace data including all products, capabilities, ROI figures, and full 4-Phase Scoping Canvas details for external reporting, executive decks, or custom analytics.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+              {/* CSV Products */}
+              <div style={{ padding: 16, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>📊 Export Products (CSV)</span>
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, flex: 1, lineHeight: 1.4 }}>
+                  Spreadsheet containing tool names, owners, categories, problem statements, capabilities, deliverables, benefits, and ROI.
+                </p>
+                <a
+                  href="/api/admin/extract/csv/tools"
+                  download
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    padding: '9px 16px', borderRadius: 8, background: '#10b981', color: '#fff',
+                    fontWeight: 700, fontSize: 12.5, textDecoration: 'none'
+                  }}
+                >
+                  Download Products CSV
+                </a>
+              </div>
+
+              {/* CSV Ideas */}
+              <div style={{ padding: 16, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>💡 Export Ideas &amp; Canvases (CSV)</span>
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, flex: 1, lineHeight: 1.4 }}>
+                  Spreadsheet containing full scoping canvas fields: Problem, Value Proposition, Strategic Alignment, Business Impact, Feasibility, and Risks.
+                </p>
+                <a
+                  href="/api/admin/extract/csv/ideas"
+                  download
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    padding: '9px 16px', borderRadius: 8, background: '#3b82f6', color: '#fff',
+                    fontWeight: 700, fontSize: 12.5, textDecoration: 'none'
+                  }}
+                >
+                  Download Ideas CSV
+                </a>
+              </div>
+
+              {/* Complete JSON */}
+              <div style={{ padding: 16, background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>📦 Bulk Export Data (JSON)</span>
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, flex: 1, lineHeight: 1.4 }}>
+                  Complete structured JSON package containing all products, ideas, canvases, and metadata for custom data pipelines.
+                </p>
+                <a
+                  href="/api/admin/extract/json"
+                  download
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    padding: '9px 16px', borderRadius: 8, background: '#8b5cf6', color: '#fff',
+                    fontWeight: 700, fontSize: 12.5, textDecoration: 'none'
+                  }}
+                >
+                  Download Bulk JSON
+                </a>
+              </div>
+            </div>
+          </div>
+
+          {/* External Integration REST API Section */}
+          <div style={{ padding: 24, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14 }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, margin: '0 0 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Zap size={18} style={{ color: 'var(--primary)' }} /> External Integration REST API
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '0 0 20px' }}>
+              Connect third-party tools, BI dashboards, or internal scripts to consume live Marketplace data using secure public REST endpoints.
+            </p>
+
+            {/* Available Endpoints Table */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {[
+                { method: 'GET', path: '/api/v1/public/tools', desc: 'List all published products with problem statements, ROI, capabilities, and demo links.', params: '?category=IX+Suite' },
+                { method: 'GET', path: '/api/v1/public/tools/{id}', desc: 'Get detailed metadata, co-owners, and capabilities for a specific tool ID.', params: '' },
+                { method: 'GET', path: '/api/v1/public/ideas', desc: 'List all proposed/approved ideas with full 4-Phase Scoping Canvas details.', params: '?status=proposed' },
+                { method: 'GET', path: '/api/v1/public/stats', desc: 'Retrieve high-level telemetry stats, category distribution, and total projected ROI.', params: '' }
+              ].map((ep, idx) => (
+                <div key={idx} style={{ padding: '14px 16px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 280 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 4, background: 'rgba(59,130,246,0.15)', color: '#3b82f6', fontFamily: 'monospace' }}>
+                        {ep.method}
+                      </span>
+                      <code style={{ fontSize: 13, fontWeight: 700, color: 'var(--primary-text)' }}>{ep.path}</code>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{ep.desc}</div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = window.location.origin + ep.path;
+                      navigator.clipboard.writeText(`curl -X GET "${url}${ep.params}"`);
+                      alert(`cURL command copied to clipboard!\ncurl -X GET "${url}${ep.params}"`);
+                    }}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Copy cURL Command
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -3128,8 +3249,8 @@ export default function AdminCenter() {
                   reader.onload = async () => {
                     try {
                       const data = JSON.parse(String(reader.result));
-                      await api('/admin/restore', { method: 'POST', body: data });
-                      alert('Database restored successfully!');
+                      const res = await api('/admin/backup', { method: 'POST', body: data });
+                      alert(res.message || 'Database restored successfully!');
                       window.location.reload();
                     } catch (err2) {
                       alert('Restore failed: ' + err2.message);
