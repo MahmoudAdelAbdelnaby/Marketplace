@@ -2507,6 +2507,7 @@ def restore_backup(body: dict, u: User = Depends(require("admin")), s: Session =
 
 # ----------------------------------------------------------------- Bulk Extract Endpoints
 @app.get("/admin/extract/json")
+@app.get("/api/admin/extract/json")
 def bulk_extract_json(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
     tools = s.exec(select(Tool).order_by(Tool.created_at.desc())).all()
     ideas = s.exec(select(Idea).order_by(Idea.updated_at.desc())).all()
@@ -2530,6 +2531,7 @@ def bulk_extract_json(u: User = Depends(require("admin")), s: Session = Depends(
 
 
 @app.get("/admin/extract/csv/tools")
+@app.get("/api/admin/extract/csv/tools")
 def bulk_extract_tools_csv(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
     import csv, io
     tools = s.exec(select(Tool).order_by(Tool.created_at.desc())).all()
@@ -2562,6 +2564,7 @@ def bulk_extract_tools_csv(u: User = Depends(require("admin")), s: Session = Dep
 
 
 @app.get("/admin/extract/csv/ideas")
+@app.get("/api/admin/extract/csv/ideas")
 def bulk_extract_ideas_csv(u: User = Depends(require("admin")), s: Session = Depends(get_session)):
     import csv, io
     ideas = s.exec(select(Idea).order_by(Idea.updated_at.desc())).all()

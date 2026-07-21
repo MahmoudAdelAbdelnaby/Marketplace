@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ShieldCheck, Key, Users, Settings, BarChart2, Check, Trash2, ArrowUpDown, Sparkles, UserPlus, Eye, Play, Mail, FileText, Zap, Activity, Search, MousePointerClick, GitPullRequest, Bot, Star, GripVertical, Vote, Send, UserCheck } from 'lucide-react';
-import { api } from '../../api';
+import { api, BASE, getToken } from '../../api';
 import { useAuthStore } from '../../store/useAuthStore';
 import AccessControlTab from './AccessControlTab';
 
@@ -47,6 +47,32 @@ function AiAuditLogRow({ row }) {
 
 export default function AdminCenter() {
   const me = useAuthStore((s) => s.user);
+
+  const handleDownloadExtract = async (endpointPath, defaultFilename) => {
+    try {
+      const token = getToken();
+      const headers = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(BASE + endpointPath, { headers });
+      if (!res.ok) {
+        let detail;
+        try { detail = (await res.json()).detail; } catch { detail = res.statusText; }
+        throw new Error(detail || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = defaultFilename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Download failed: ' + err.message);
+    }
+  };
   const [users, setUsers] = useState([]);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [err, setErr] = useState('');
@@ -2157,17 +2183,17 @@ export default function AdminCenter() {
                 <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, flex: 1, lineHeight: 1.4 }}>
                   Spreadsheet containing tool names, owners, categories, problem statements, capabilities, deliverables, benefits, and ROI.
                 </p>
-                <a
-                  href="/api/admin/extract/csv/tools"
-                  download
+                <button
+                  type="button"
+                  onClick={() => handleDownloadExtract('/admin/extract/csv/tools', `marketplace_products_${new Date().toISOString().slice(0, 10)}.csv`)}
                   style={{
                     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                     padding: '9px 16px', borderRadius: 8, background: '#10b981', color: '#fff',
-                    fontWeight: 700, fontSize: 12.5, textDecoration: 'none'
+                    fontWeight: 700, fontSize: 12.5, border: 'none', cursor: 'pointer'
                   }}
                 >
                   Download Products CSV
-                </a>
+                </button>
               </div>
 
               {/* CSV Ideas */}
@@ -2178,17 +2204,17 @@ export default function AdminCenter() {
                 <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, flex: 1, lineHeight: 1.4 }}>
                   Spreadsheet containing full scoping canvas fields: Problem, Value Proposition, Strategic Alignment, Business Impact, Feasibility, and Risks.
                 </p>
-                <a
-                  href="/api/admin/extract/csv/ideas"
-                  download
+                <button
+                  type="button"
+                  onClick={() => handleDownloadExtract('/admin/extract/csv/ideas', `marketplace_ideas_${new Date().toISOString().slice(0, 10)}.csv`)}
                   style={{
                     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                     padding: '9px 16px', borderRadius: 8, background: '#3b82f6', color: '#fff',
-                    fontWeight: 700, fontSize: 12.5, textDecoration: 'none'
+                    fontWeight: 700, fontSize: 12.5, border: 'none', cursor: 'pointer'
                   }}
                 >
                   Download Ideas CSV
-                </a>
+                </button>
               </div>
 
               {/* Complete JSON */}
@@ -2199,17 +2225,17 @@ export default function AdminCenter() {
                 <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, flex: 1, lineHeight: 1.4 }}>
                   Complete structured JSON package containing all products, ideas, canvases, and metadata for custom data pipelines.
                 </p>
-                <a
-                  href="/api/admin/extract/json"
-                  download
+                <button
+                  type="button"
+                  onClick={() => handleDownloadExtract('/admin/extract/json', `marketplace_bulk_extract_${new Date().toISOString().slice(0, 10)}.json`)}
                   style={{
                     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                     padding: '9px 16px', borderRadius: 8, background: '#8b5cf6', color: '#fff',
-                    fontWeight: 700, fontSize: 12.5, textDecoration: 'none'
+                    fontWeight: 700, fontSize: 12.5, border: 'none', cursor: 'pointer'
                   }}
                 >
                   Download Bulk JSON
-                </a>
+                </button>
               </div>
             </div>
           </div>
