@@ -2133,6 +2133,9 @@ export default function AdminCenter() {
                 </div>
               </div>
             </div>
+          )}
+        </div>
+      )}
       {/* TAB CONTENT: DATA EXTRACT & EXTERNAL REST API */}
       {adminTab === 'extract' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
